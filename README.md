@@ -31,16 +31,16 @@ How can historical and real-time data be used to forecast event-related traffic 
 
 ### 3. Baseline Regressor Modeling & Evaluation
 **Script**: `train_regressors.py`
-We split the dataset into an **80-20 train-test split** to train three baseline models predicting the continuous `congestion_score` (resolution duration in minutes):
+We split the dataset into an **80-20 train-test split** to train three baseline models predicting the continuous `congestion_score` (resolution duration in minutes). The features are processed through a Scikit-Learn `Pipeline` with `ColumnTransformer` to prevent data leakage.
 
 | Model Name | Mean Absolute Error (MAE) | Root Mean Squared Error (RMSE) | $R^2$ Score |
 | :--- | :--- | :--- | :--- |
-| **Linear Regression** | 3,352.23 mins | 5,792.49 mins | 0.0981 |
-| **XGBoost Regressor** | 2,750.26 mins | 5,674.75 mins | 0.1344 |
-| **Random Forest Regressor** | **2,539.41 mins** | **5,427.29 mins** | **0.2083** |
+| **Linear Regression** | 3,331.16 mins | 5,779.42 mins | 0.1022 |
+| **Random Forest Regressor** | 2,585.52 mins | 5,415.32 mins | 0.2117 |
+| **XGBoost Regressor** | **2,391.58 mins** | **5,408.10 mins** | **0.2139** |
 
-* **Winner**: The **Random Forest Regressor** yielded the best scores, reducing prediction error by over **812 minutes** compared to Linear Regression.
-* **Serialization**: Saved the best-performing model as `best_congestion_model.pkl` using `joblib`.
+* **Winner**: The **XGBoost Regressor** yielded the best scores after hyperparameter tuning with `RandomizedSearchCV`.
+* **Serialization**: Saved the full preprocessor and regressor pipeline as `best_congestion_pipeline.pkl` using `joblib`.
 * **Plots**: Saved feature importances as `feature_importance.png` and prediction scatter plot as `predictions_vs_actual.png`.
 
 ---
@@ -49,9 +49,9 @@ We split the dataset into an **80-20 train-test split** to train three baseline 
 * `Astram event data_anonymized - Astram event data_anonymizedb40ac87.csv` — Raw dataset.
 * `eda_and_feature_engineering.py` — Pipeline script for cleaning, EDA, and feature matrix extraction.
 * `engineered_features.csv` — Engineered dataset matrix ready for ML models.
-* `train_regressors.py` — Script to train, evaluate, and output the model comparison and plots.
-* `best_congestion_model.pkl` — The saved Random Forest regressor model.
-* `feature_importance.png` — Visualization showing Latitude, Longitude, and Hour as the top factors.
+* `train_regressors.py` — Script to train, evaluate, tune (via RandomizedSearchCV), and output the model comparison and plots.
+* `best_congestion_pipeline.pkl` — The saved Scikit-Learn pipeline (contains both the ordinal encoders and the XGBoost regressor).
+* `feature_importance.png` — Visualization of feature impact on the model.
 * `predictions_vs_actual.png` — Scatter plot of predicted values vs actual values.
 * `README.md` — Project description and setup instructions.
 

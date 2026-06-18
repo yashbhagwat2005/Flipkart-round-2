@@ -1,17 +1,21 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import LabelEncoder
-import json
+import logging
 
-def run_eda_cleaning_feature_engineering():
-    # ------------------ STEP 1: LOAD DATA ------------------
-    csv_filename = "Astram event data_anonymized - Astram event data_anonymizedb40ac87.csv"
-    print(f"=== [STEP 1] Loading Dataset: {csv_filename} ===")
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+def load_data(csv_filename: str) -> pd.DataFrame:
+    """Loads the raw CSV dataset."""
+    logger.info(f"Loading Dataset: {csv_filename}")
     df = pd.read_csv(csv_filename, low_memory=False)
-    print(f"Original Dataset Shape: {df.shape[0]} rows, {df.shape[1]} columns\n")
+    logger.info(f"Original Dataset Shape: {df.shape[0]} rows, {df.shape[1]} columns")
+    return df
 
-    # ------------------ STEP 2: DATA CLEANING ------------------
-    print("=== [STEP 2] Data Cleaning & Parsing ===")
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Cleans data by parsing dates, calculating durations, handling missing values and outliers."""
+    logger.info("Starting Data Cleaning & Parsing...")
     
     # Parse datetimes
     df['start_datetime'] = pd.to_datetime(df['start_datetime'], errors='coerce', format='mixed')
@@ -35,79 +39,60 @@ def run_eda_cleaning_feature_engineering():
     # Remove outlier durations (e.g. negative durations or longer than 30 days)
     initial_valid_durations = df['closure_min'].notnull().sum()
     df_clean = df[(df['closure_min'] >= 0) & (df['closure_min'] <= 43200)].dropna(subset=['latitude', 'longitude'])
-    cleaned_valid_durations = df_clean['closure_min'].notnull().sum()
     
-    print(f"Total rows with valid closure timestamps: {initial_valid_durations}")
-    print(f"Rows retained after removing outliers/null coordinates: {len(df_clean)} (Cleaned shape)")
-    print(f"Data Cleaning complete.\n")
+    logger.info(f"Total rows with valid closure timestamps: {initial_valid_durations}")
+    logger.info(f"Rows retained after removing outliers/null coordinates: {len(df_clean)} (Cleaned shape)")
+    return df_clean
 
-    # ------------------ STEP 3: EXPLORATORY DATA ANALYSIS (EDA) ------------------
-    print("=== [STEP 3] Exploratory Data Analysis (EDA) ===")
-    
-    print("--- Distribution of Event Causes ---")
-    cause_dist = df_clean['event_cause'].value_counts()
-    for cause, count in cause_dist.items():
-        print(f"  * {cause:<20} : {count} events ({count/len(df_clean)*100:.1f}%)")
-        
-    print("\n--- Average & Median Congestion Duration (Minutes) by Cause ---")
-    duration_stats = df_clean.groupby('event_cause')['closure_min'].agg(['count', 'mean', 'median']).sort_values(by='count', ascending=False)
-    print(duration_stats)
-
-    print("\n--- Distribution of Incident Priority Levels ---")
-    prio_dist = df_clean['priority'].value_counts()
-    for prio, count in prio_dist.items():
-        print(f"  * {prio:<10} : {count} events ({count/len(df_clean)*100:.1f}%)")
-        
-    print(f"\nCoordinates Boundary box: Lat ({df_clean['latitude'].min():.4f} to {df_clean['latitude'].max():.4f}), Lon ({df_clean['longitude'].min():.4f} to {df_clean['longitude'].max():.4f})\n")
-
-    # ------------------ STEP 4: FEATURE ENGINEERING ------------------
-    print("=== [STEP 4] Feature Engineering ===")
+def engineer_features(df_clean: pd.DataFrame) -> pd.DataFrame:
+    """Engineers cyclical features and defines the target severity without data leakage."""
+    logger.info("Starting Feature Engineering...")
     
     # Extract temporal features
     df_clean['hour'] = df_clean['start_datetime'].dt.hour
     df_clean['dow'] = df_clean['start_datetime'].dt.dayofweek
-    print("  * Extracted temporal features: 'hour' of day, 'dow' (day of week)")
+    
+    # Create cyclical features for hour and dow
+    df_clean['hour_sin'] = np.sin(2 * np.pi * df_clean['hour'] / 24.0)
+    df_clean['hour_cos'] = np.cos(2 * np.pi * df_clean['hour'] / 24.0)
+    
+    df_clean['dow_sin'] = np.sin(2 * np.pi * df_clean['dow'] / 7.0)
+    df_clean['dow_cos'] = np.cos(2 * np.pi * df_clean['dow'] / 7.0)
+    logger.info("Extracted temporal cyclical features: 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos'")
     
     # Create target variable: severity binned as:
     # Low (0 to 60 mins), Medium (60 to 300 mins), High (over 300 mins)
     df_clean['severity'] = pd.cut(df_clean['closure_min'], bins=[-1, 60, 300, 1000000], labels=[0, 1, 2]).astype(int)
-    print("  * Engineered Target variable: 'severity' (0 = Low < 1h, 1 = Med 1-5h, 2 = High > 5h)")
-    print("    Severity Distribution:")
-    sev_counts = df_clean['severity'].value_counts()
-    print(f"      - Low (0)    : {sev_counts.get(0, 0)} events ({sev_counts.get(0,0)/len(df_clean)*100:.1f}%)")
-    print(f"      - Medium (1) : {sev_counts.get(1, 0)} events ({sev_counts.get(1,0)/len(df_clean)*100:.1f}%)")
-    print(f"      - High (2)   : {sev_counts.get(2, 0)} events ({sev_counts.get(2,0)/len(df_clean)*100:.1f}%)")
+    logger.info("Engineered Target variable: 'severity' (0 = Low < 1h, 1 = Med 1-5h, 2 = High > 5h)")
 
-    # Categorical Label Encodings
-    categorical_cols = ['event_cause', 'corridor', 'zone', 'priority']
-    encoders = {}
-    for col in categorical_cols:
-        le = LabelEncoder()
-        unique_vals = list(df_clean[col].unique())
-        if 'Unknown' not in unique_vals:
-            unique_vals.append('Unknown')
-        le.fit(unique_vals)
-        df_clean[col + '_enc'] = le.transform(df_clean[col])
-        encoders[col] = le
-        print(f"  * Encoded categorical variable: '{col}' -> '{col}_enc'")
-
-    df_clean['priority_enc'] = encoders['priority'].transform(df_clean['priority'])
-
-    # Final feature matrix definition
+    # Final feature matrix definition (leaving categorical columns as strings to prevent leakage)
     features = [
-        'event_cause_enc', 'corridor_enc', 'zone_enc',
-        'requires_road_closure_bool', 'hour', 'dow',
-        'latitude', 'longitude', 'priority_enc'
+        'event_cause', 'corridor', 'zone', 'priority',
+        'requires_road_closure_bool', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos',
+        'latitude', 'longitude'
     ]
     
     feature_matrix = df_clean[features + ['closure_min', 'severity']]
-    print(f"\nFinal Engineered Feature Matrix Shape: {feature_matrix.shape}")
-    print("\nSample of Engineered Features:")
-    print(feature_matrix.head(5).to_string())
+    logger.info(f"Final Engineered Feature Matrix Shape: {feature_matrix.shape}")
+    return feature_matrix
+
+def main():
+    csv_filename = "Astram event data_anonymized - Astram event data_anonymizedb40ac87.csv"
     
-    # Save the feature matrix for modeling
-    feature_matrix.to_csv("engineered_features.csv", index=False)
-    print("\nSaved preprocessed feature matrix to 'engineered_features.csv'")
+    df = load_data(csv_filename)
+    df_clean = clean_data(df)
+    
+    # Simple EDA logging
+    logger.info("--- Distribution of Event Causes ---")
+    cause_dist = df_clean['event_cause'].value_counts()
+    for cause, count in cause_dist.items():
+        logger.info(f"  * {cause:<20} : {count} events ({count/len(df_clean)*100:.1f}%)")
+    
+    feature_matrix = engineer_features(df_clean)
+    
+    output_filename = "engineered_features.csv"
+    feature_matrix.to_csv(output_filename, index=False)
+    logger.info(f"Saved preprocessed feature matrix to '{output_filename}'")
 
 if __name__ == "__main__":
-    run_eda_cleaning_feature_engineering()
+    main()
