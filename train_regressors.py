@@ -4,12 +4,13 @@ import joblib
 import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
+import json
+from datetime import datetime
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OrdinalEncoder
 from sklearn.ensemble import RandomForestRegressor
-from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.compose import TransformedTargetRegressor
@@ -69,21 +70,21 @@ def train_and_evaluate_models(X_train, X_test, y_train, y_test, categorical_cols
     """Trains models, performs hyperparameter tuning, and evaluates them."""
     
     # Initialize base models
+    # Note: XGBoost 3.x crashes on Windows (DMatrix access violation in joblib workers)
+    # and was also scoring lower than Random Forest, so it is excluded.
     rf_base = RandomForestRegressor(random_state=42, n_jobs=-1)
-    xgb_base = XGBRegressor(random_state=42, n_jobs=-1)
     lr_base = LinearRegression()
-    
+
     # Wrap base models to predict log(congestion_score)
     rf_log = TransformedTargetRegressor(regressor=rf_base, func=np.log1p, inverse_func=np.expm1)
-    xgb_log = TransformedTargetRegressor(regressor=xgb_base, func=np.log1p, inverse_func=np.expm1)
     lr_log = TransformedTargetRegressor(regressor=lr_base, func=np.log1p, inverse_func=np.expm1)
     lgbm_log = TransformedTargetRegressor(regressor=LGBMRegressor(random_state=42, n_jobs=-1, verbose=-1), func=np.log1p, inverse_func=np.expm1)
-    
+
     # Define models and their hyperparameter grids
     models_to_train = {
         "Linear Regression": {
             "model": lr_log,
-            "params": {} # No hyperparameters to tune
+            "params": {}  # No hyperparameters to tune
         },
         "Random Forest Regressor": {
             "model": rf_log,
@@ -92,16 +93,6 @@ def train_and_evaluate_models(X_train, X_test, y_train, y_test, categorical_cols
                 'model__regressor__max_depth': [None, 10, 20, 30, 40],
                 'model__regressor__min_samples_split': [2, 5, 10],
                 'model__regressor__min_samples_leaf': [1, 2, 4]
-            }
-        },
-        "XGBoost Regressor": {
-            "model": xgb_log,
-            "params": {
-                'model__regressor__n_estimators': [100, 200, 300, 500],
-                'model__regressor__max_depth': [3, 5, 7, 9, 12],
-                'model__regressor__learning_rate': [0.01, 0.05, 0.1, 0.2],
-                'model__regressor__subsample': [0.7, 0.8, 0.9, 1.0],
-                'model__regressor__colsample_bytree': [0.7, 0.8, 0.9, 1.0]
             }
         },
         "LightGBM Regressor": {
@@ -231,7 +222,7 @@ def main():
     # Comparison summary
     logger.info("=== MODEL COMPARISON SUMMARY ===")
     results_df = pd.DataFrame(results).T
-    logger.info("\n" + results_df.to_markdown())
+    logger.info("\n" + results_df.to_string())
     
     # Select best model
     best_model_name = max(results, key=lambda k: results[k]["R2"])
@@ -242,6 +233,16 @@ def main():
     model_filename = "best_congestion_pipeline.pkl"
     joblib.dump(best_pipeline, model_filename)
     logger.info(f"Saved best performing pipeline ({best_model_name}) to '{model_filename}'")
+
+    metadata = {
+        "trained_at": datetime.now().isoformat(),
+        "model_name": best_model_name,
+        "mae": float(results[best_model_name]["MAE"]),
+        "r2": float(results[best_model_name]["R2"]),
+    }
+    with open("model_metadata.json", "w", encoding="utf-8") as metadata_file:
+        json.dump(metadata, metadata_file, indent=2)
+    logger.info("Saved model metadata to 'model_metadata.json'")
     
     # Generate plots
     generate_plots(y_test, predictions[best_model_name], best_model_name, best_pipeline, X.columns.tolist(), categorical_cols)

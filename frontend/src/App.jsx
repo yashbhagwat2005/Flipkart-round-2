@@ -1,220 +1,191 @@
-import { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Polyline, Circle, Marker, Popup, useMap } from 'react-leaflet';
-import { ShieldAlert, Route, AlertTriangle, Radio, Activity, Navigation2 } from 'lucide-react';
-import L from 'leaflet';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { BrainCircuit, Map, ShieldAlert, Siren, X } from 'lucide-react';
 
-// Map auto-fitter component
-function MapFitter({ bounds }) {
-  const map = useMap();
-  useEffect(() => {
-    if (bounds && bounds.length > 0) {
-      map.fitBounds(bounds, { padding: [50, 50] });
-    }
-  }, [bounds, map]);
-  return null;
-}
+import DiversionMap from './components/DiversionMap';
+import EventForm from './components/EventForm';
+import LearningDashboard from './components/LearningDashboard';
+import ResourcePanel from './components/ResourcePanel';
+import SeverityGauge from './components/SeverityGauge';
+
+const API = 'http://127.0.0.1:8000';
+
+const views = [
+  { id: 'report', label: 'Situation Report', icon: Siren },
+  { id: 'map', label: 'Diversion Map', icon: Map },
+  { id: 'learning', label: 'Learning Dashboard', icon: BrainCircuit },
+];
 
 export default function App() {
+  const [view, setView] = useState('report');
+  const [networkError, setNetworkError] = useState('');
   const [state, setState] = useState(null);
-  const [activeScenario, setActiveScenario] = useState(0);
-  const [routeData, setRouteData] = useState(null);
+  const [corridors, setCorridors] = useState([]);
+  // nodes: {id -> name} for dropdown labels
+  const [nodes, setNodes] = useState({});
+  // nodeData: {id -> {lat, lon, name}} full objects for lat/lon auto-fill
+  const [nodeData, setNodeData] = useState({});
+  const [eventResult, setEventResult] = useState(null);
+  const [scenarioRoute, setScenarioRoute] = useState(null);
+  const [selectedScenario, setSelectedScenario] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const reduceMotion = useReducedMotion();
 
-  useEffect(() => {
-    fetch('http://127.0.0.1:8000/api/state')
-      .then(res => res.json())
-      .then(data => setState(data))
-      .catch(err => console.error("Error loading state", err));
+  const reportFailure = useCallback(() => {
+    setNetworkError('Backend unreachable — check the server is running');
   }, []);
 
   useEffect(() => {
-    if (state) {
-      fetch(`http://127.0.0.1:8000/api/scenario/${activeScenario}`)
-        .then(res => res.json())
-        .then(data => setRouteData(data))
-        .catch(err => console.error("Error loading scenario", err));
+    const loadInitialData = async () => {
+      try {
+        const [stateResponse, corridorResponse, nodeResponse] = await Promise.all([
+          fetch(`${API}/api/state`),
+          fetch(`${API}/api/corridors`),
+          fetch(`${API}/api/nodes`),
+        ]);
+        if (!stateResponse.ok || !corridorResponse.ok || !nodeResponse.ok) {
+          throw new Error('Backend request failed');
+        }
+        const [stateData, corridorData, nodeNameData] = await Promise.all([
+          stateResponse.json(),
+          corridorResponse.json(),
+          nodeResponse.json(),
+        ]);
+        setState(stateData);
+        setCorridors(corridorData.corridors);
+        setNodes(nodeNameData.nodes);
+        // Full node objects (with lat/lon) come from /api/state
+        if (stateData.nodes) setNodeData(stateData.nodes);
+      } catch (error) {
+        console.error(error);
+        reportFailure();
+      }
+    };
+    loadInitialData();
+  }, []);
+
+  const handleScenario = async (index) => {
+    setSelectedScenario(index);
+    try {
+      const response = await fetch(`${API}/api/scenario/${index}`);
+      if (!response.ok) throw new Error('Scenario request failed');
+      setScenarioRoute(await response.json());
+    } catch (error) {
+      console.error(error);
+      reportFailure();
     }
-  }, [activeScenario, state]);
-
-  if (!state || !routeData) {
-    return (
-      <div className="dashboard-container" style={{ alignItems: 'center', justifyContent: 'center' }}>
-        <Activity className="lucide-spin" size={48} color="var(--accent)" />
-      </div>
-    );
-  }
-
-  // Calculate map bounds based on current routes
-  const bounds = [];
-  if (routeData.scenario.origin && state.nodes[routeData.scenario.origin]) {
-    bounds.push([state.nodes[routeData.scenario.origin].lat, state.nodes[routeData.scenario.origin].lon]);
-  }
-  if (routeData.scenario.dest && state.nodes[routeData.scenario.dest]) {
-    bounds.push([state.nodes[routeData.scenario.dest].lat, state.nodes[routeData.scenario.dest].lon]);
-  }
-  // Add some fallback bounds for Bengaluru
-  if (bounds.length === 0) {
-    bounds.push([12.8, 77.4], [13.1, 77.8]);
-  }
-
-  // Draw background edges
-  const bgEdges = state.edges.map((e, i) => {
-    const n1 = state.nodes[e.from];
-    const n2 = state.nodes[e.to];
-    if(!n1 || !n2) return null;
-    // Don't draw background for the blocked route
-    if (e.corridor === routeData.scenario.blocked) return null;
-    return <Polyline key={`bg-${i}`} positions={[[n1.lat, n1.lon], [n2.lat, n2.lon]]} color="#334155" weight={3} opacity={0.5} />;
-  });
-
-  // Draw blocked edges
-  const blockedEdges = state.edges.filter(e => e.corridor === routeData.scenario.blocked).map((e, i) => {
-    const n1 = state.nodes[e.from];
-    const n2 = state.nodes[e.to];
-    if(!n1 || !n2) return null;
-    return (
-      <Polyline 
-        key={`blocked-${i}`} 
-        positions={[[n1.lat, n1.lon], [n2.lat, n2.lon]]} 
-        color="var(--blocked-route)" 
-        weight={6} 
-      />
-    );
-  });
-
-  // Draw hotspots
-  const hotspots = state.hotspots.map((h, i) => (
-    <Circle key={`hs-${i}`} center={[h.lat, h.lon]} radius={1500} pathOptions={{ color: '#8b5cf6', fillColor: '#8b5cf6', fillOpacity: 0.2 }} />
-  ));
-
-  // Draw routes
-  const drawPath = (pathObj, color, weight, dashArray = null) => {
-    if (!pathObj || !pathObj.path) return null;
-    return pathObj.path.map((segment, i) => {
-      const n1 = state.nodes[segment.from];
-      const n2 = state.nodes[segment.to];
-      if(!n1 || !n2) return null;
-      return (
-        <Polyline 
-          key={`route-${i}`} 
-          positions={[[n1.lat, n1.lon], [n2.lat, n2.lon]]} 
-          color={color} 
-          weight={weight} 
-          dashArray={dashArray} 
-        />
-      );
-    });
   };
 
-  // Create custom icons
-  const createIcon = (color, label) => L.divIcon({
-    className: 'custom-div-icon',
-    html: `<div style="background-color: ${color}; border: 3px solid #1e293b; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-family: sans-serif; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">${label}</div>`,
-    iconSize: [30, 30],
-    iconAnchor: [15, 15]
-  });
+  const handleSubmit = async (payload) => {
+    setSubmitting(true);
+    try {
+      const response = await fetch(`${API}/api/event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error('Event analysis failed');
+      const result = await response.json();
+      setEventResult(result);
+      setSelectedScenario(null);
+      if (result.diversion) setView('map');
+    } catch (error) {
+      console.error(error);
+      reportFailure();
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
-  const originNode = state.nodes[routeData.scenario.origin];
-  const destNode = state.nodes[routeData.scenario.dest];
+  const activeRoute = useMemo(
+    () => eventResult?.diversion || scenarioRoute,
+    [eventResult, scenarioRoute],
+  );
 
   return (
-    <div className="dashboard-container">
-      {/* SIDEBAR */}
-      <div className="sidebar">
+    <div className="app-shell">
+      {networkError && (
+        <div className="error-banner" role="alert">
+          <span>{networkError}</span>
+          <button aria-label="Dismiss backend warning" onClick={() => setNetworkError('')}>
+            <X size={18} />
+          </button>
+        </div>
+      )}
+
+      <header className="app-header">
         <div className="brand">
-          <div className="brand-icon">
-            <ShieldAlert size={28} />
+          <span className="brand-icon"><ShieldAlert size={24} /></span>
+          <div>
+            <strong>ASTRAM</strong>
+            <span>Traffic Command</span>
           </div>
-          <h1>Traffic Manager</h1>
         </div>
-        
-        <div className="section-title">Active Scenarios</div>
-        <div className="scenario-list">
-          {state.scenarios.map((s, idx) => (
-            <div 
-              key={idx} 
-              className={`scenario-card ${activeScenario === idx ? 'active' : ''}`}
-              onClick={() => setActiveScenario(idx)}
+        <nav className="view-switcher" aria-label="Main views">
+          {views.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              className={view === id ? 'active' : ''}
+              onClick={() => setView(id)}
             >
-              <h3>{s.desc}</h3>
-              <p>{s.blocked} Blocked</p>
-            </div>
+              <Icon size={17} />
+              <span>{label}</span>
+            </button>
           ))}
-        </div>
-      </div>
+        </nav>
+      </header>
 
-      {/* MAIN CONTENT */}
-      <div className="main-content">
-        {/* Top Metrics Overlay */}
-        <div className="top-overlay">
-          <div className="metrics-row">
-            <div className="metric-card" style={{ borderLeft: '4px solid var(--blocked-route)' }}>
-              <div className="metric-label" style={{ color: 'var(--blocked-route)' }}><AlertTriangle size={14} /> Blocked Corridor</div>
-              <div className="metric-value">{routeData.scenario.blocked}</div>
+      <AnimatePresence mode="wait">
+        <motion.main
+          key={view}
+          className={`view view-${view}`}
+          initial={reduceMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={reduceMotion ? undefined : { opacity: 0 }}
+          transition={{ duration: reduceMotion ? 0 : 0.22 }}
+        >
+          {view === 'report' && (
+            <div className="report-layout">
+              <EventForm
+                scenarios={state?.scenarios || []}
+                corridors={corridors}
+                nodes={nodes}
+                nodeData={nodeData}
+                selectedScenario={selectedScenario}
+                onScenario={handleScenario}
+                onSubmit={handleSubmit}
+                submitting={submitting}
+              />
+              <section className="analysis-column">
+                <div className="glass-panel severity-panel">
+                  <div>
+                    <p className="eyebrow">Predicted operational severity</p>
+                    <h2>Live impact assessment</h2>
+                  </div>
+                  <SeverityGauge
+                    score={eventResult?.severity_score || 0}
+                    label={eventResult?.severity_label || 'Awaiting event'}
+                    minutes={eventResult?.predicted_closure_min}
+                  />
+                </div>
+                <ResourcePanel result={eventResult} />
+              </section>
             </div>
-            
-            <div className="metric-card" style={{ borderLeft: '4px solid var(--primary-route)' }}>
-              <div className="metric-label" style={{ color: 'var(--primary-route)' }}><Navigation2 size={14} /> Primary Diversion</div>
-              <div className="metric-value">{routeData.primary.distance} km</div>
-            </div>
+          )}
 
-            <div className="metric-card" style={{ borderLeft: '4px solid var(--secondary-route)' }}>
-              <div className="metric-label" style={{ color: 'var(--secondary-route)' }}><Route size={14} /> Secondary Backup</div>
-              <div className="metric-value">{routeData.secondary.distance} km</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom Instruction Overlay */}
-        <div className="bottom-overlay">
-          <div className="instruction-panel">
-            <div className="instruction-icon">
-              <Radio size={32} />
-            </div>
-            <div className="instruction-content">
-              <h3>Radio Dispatch Instruction</h3>
-              <p>"{routeData.instruction}"</p>
-            </div>
-          </div>
-        </div>
-
-        {/* MAP */}
-        <div className="map-container">
-          <MapContainer 
-            center={[12.9716, 77.5946]} 
-            zoom={12} 
-            style={{ height: "100%", width: "100%" }}
-            zoomControl={false}
-          >
-            <TileLayer
-              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-              attribution='&copy; <a href="https://carto.com/">CartoDB</a>'
+          {view === 'map' && (
+            <DiversionMap
+              networkState={state}
+              routeData={activeRoute}
+              custom={Boolean(eventResult?.diversion)}
             />
-            <MapFitter bounds={bounds} />
-            
-            {/* Layers */}
-            {bgEdges}
-            {blockedEdges}
-            {hotspots}
-            
-            {/* We don't have the explicit blocked edge coordinates in API easily, so we just show origin/dest markers */}
-            {drawPath(routeData.secondary, 'var(--secondary-route)', 5)}
-            {drawPath(routeData.primary, 'var(--primary-route)', 6)}
-            
-            {originNode && (
-              <Marker position={[originNode.lat, originNode.lon]} icon={createIcon('var(--blocked-route)', 'A')}>
-                <Popup>{routeData.scenario.origin} (Origin)</Popup>
-              </Marker>
-            )}
-            
-            {destNode && (
-              <Marker position={[destNode.lat, destNode.lon]} icon={createIcon('var(--primary-route)', 'B')}>
-                <Popup>{routeData.scenario.dest} (Destination)</Popup>
-              </Marker>
-            )}
+          )}
 
-          </MapContainer>
-        </div>
-      </div>
+          {view === 'learning' && (
+            <LearningDashboard api={API} onFailure={reportFailure} />
+          )}
+        </motion.main>
+      </AnimatePresence>
     </div>
   );
 }

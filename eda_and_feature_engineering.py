@@ -1,13 +1,12 @@
 import pandas as pd
 import numpy as np
 import logging
+from config import DATA_FILE, CBD_LAT, CBD_LON
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-CBD_LAT = 12.9716
-CBD_LON = 77.5946
 MAX_CLOSURE_MINUTES = 43200  # 30 days
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -102,9 +101,7 @@ def engineer_features(df_clean: pd.DataFrame) -> pd.DataFrame:
     return feature_matrix
 
 def main():
-    csv_filename = "Astram event data_anonymized - Astram event data_anonymizedb40ac87.csv"
-    
-    df = load_data(csv_filename)
+    df = load_data(DATA_FILE)
     df_clean = clean_data(df)
     
     # Simple EDA logging
