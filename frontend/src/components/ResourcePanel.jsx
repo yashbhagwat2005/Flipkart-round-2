@@ -5,8 +5,10 @@ export default function ResourcePanel({ result }) {
     return (
       <section className="glass-panel empty-state">
         <RadioTower size={28} />
-        <h3>No active assessment</h3>
-        <p>Submit an event or choose a scenario to prepare the command brief.</p>
+        <h3>Awaiting incident data</h3>
+        <p>Choose a demo scenario above or fill in the incident form to generate
+           a deployment plan with officer counts, station assignments, and
+           barricade recommendations.</p>
       </section>
     );
   }
@@ -16,32 +18,32 @@ export default function ResourcePanel({ result }) {
       <div className="resource-metrics">
         <article>
           <Users />
-          <span>Officers</span>
+          <span>Officers needed</span>
           <strong className="numeric">{result.officers_needed}</strong>
         </article>
         <article>
           <Construction />
-          <span>Barricade points</span>
+          <span>Barricade locations</span>
           <strong className="numeric">{result.estimated_barricade_points}</strong>
         </article>
         <article>
           <ShieldCheck />
-          <span>Confidence</span>
+          <span>ML confidence</span>
           <strong className="numeric">{Math.round(result.barricade_confidence * 100)}%</strong>
         </article>
       </div>
 
       <div className="resource-section">
         <div className="section-heading">
-          <h3>Recommended stations</h3>
+          <h3>Nearest responding stations</h3>
           <span className={`status-pill ${result.barricade_needed ? 'danger' : 'safe'}`}>
-            Barricades {result.barricade_needed ? 'required' : 'optional'}
+            {result.barricade_needed ? '⚠️ Barricades recommended' : '✓ No barricades needed'}
           </span>
         </div>
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Station</th><th>Distance</th><th>Load</th></tr>
+              <tr><th>Police Station</th><th>Distance</th><th>Active events</th></tr>
             </thead>
             <tbody>
               {result.recommended_stations.map((station) => (
@@ -56,7 +58,10 @@ export default function ResourcePanel({ result }) {
         </div>
       </div>
 
-      <blockquote>{result.human_instruction}</blockquote>
+      <div className="instruction-block">
+        <span className="instruction-label">📻 Radio dispatch instruction</span>
+        <blockquote>{result.human_instruction}</blockquote>
+      </div>
     </section>
   );
 }

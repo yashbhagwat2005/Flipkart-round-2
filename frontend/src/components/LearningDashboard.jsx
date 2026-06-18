@@ -80,29 +80,38 @@ export default function LearningDashboard({ api, onFailure }) {
   };
 
   const metrics = [
-    ['Total events', overview?.total_events],
-    ['Closed events', overview?.closed_events],
-    ['Avg resolution', overview ? `${formatNumber(overview.avg_resolution_min)} min` : null],
-    ['High severity', overview?.high_severity_events],
+    ['Total incidents logged', overview?.total_events],
+    ['Incidents with known outcome', overview?.closed_events],
+    ['Avg clearance time', overview ? `${formatNumber(overview.avg_resolution_min)} min` : null],
+    ['High-severity incidents', overview?.high_severity_events],
   ];
 
   return (
     <section className="learning-dashboard">
       <div className="learning-heading">
         <div>
-          <p className="eyebrow">Model observatory</p>
-          <h1>Learning dashboard</h1>
-          <p>Historical operating volume, error patterns, and retraining controls.</p>
+          <p className="eyebrow">AI performance tracker</p>
+          <h1>Model accuracy & insights</h1>
+          <p>How accurately our ML model predicts incident clearance times,
+              and where it makes the most errors.</p>
         </div>
         <div className="retrain-box">
           <span>MAE <strong className="numeric">{formatNumber(overview?.model_mae)}</strong></span>
           <span>R² <strong className="numeric">{overview?.model_r2 == null ? '—' : overview.model_r2.toFixed(3)}</strong></span>
           <button className="primary-button" onClick={retrain} disabled={retraining}>
             <RefreshCw size={16} className={retraining ? 'spin' : ''} />
-            {retraining ? 'Retraining' : 'Retrain'}
+            {retraining ? 'Training...' : 'Retrain model'}
           </button>
           {retrainResult && (
-            <small>MAE: {formatNumber(retrainResult.before)} → {formatNumber(retrainResult.after)}</small>
+            <small>
+              Avg error: {formatNumber(retrainResult.before)} min
+              → {formatNumber(retrainResult.after)} min
+              {retrainResult.before && retrainResult.after
+                ? ` (${retrainResult.after < retrainResult.before ? '↓' : '↑'}${
+                    Math.abs(((retrainResult.after - retrainResult.before) / retrainResult.before) * 100).toFixed(1)
+                  }%)`
+                : ''}
+            </small>
           )}
         </div>
       </div>
@@ -119,7 +128,8 @@ export default function LearningDashboard({ api, onFailure }) {
       <div className="chart-grid">
         <article className="glass-panel chart-card wide">
           <h3>Mean prediction error by corridor</h3>
-          <p>Positive values indicate under-predicted closure time.</p>
+          <p>Corridors above zero are taking longer than the model
+                expects — these need manual bias correction.</p>
           <ResponsiveContainer width="100%" height={310}>
             <BarChart data={errorData} margin={{ left: 10, right: 10, bottom: 65 }}>
               <CartesianGrid stroke="rgba(255,255,255,.06)" vertical={false} />
@@ -133,7 +143,8 @@ export default function LearningDashboard({ api, onFailure }) {
 
         <article className="glass-panel chart-card">
           <h3>Cause volume vs duration</h3>
-          <p>Event count against median closure minutes.</p>
+          <p>Each dot is an incident type. Top-right = frequent and
+                long-lasting — highest operational priority.</p>
           <ResponsiveContainer width="100%" height={310}>
             <ScatterChart margin={{ left: 8, right: 16, bottom: 15 }}>
               <CartesianGrid stroke="rgba(255,255,255,.06)" />
@@ -150,7 +161,7 @@ export default function LearningDashboard({ api, onFailure }) {
 
         <article className="glass-panel chart-card heatmap-card">
           <h3>Event volume by day and hour</h3>
-          <p>Darker amber cells represent busier periods.</p>
+          <p>Amber = more incidents. Peak hours need pre-deployed units.</p>
           <div className="heatmap">
             <span />
             {(heatmap?.hours || []).map((hour) => <small key={hour}>{hour % 3 === 0 ? hour : ''}</small>)}

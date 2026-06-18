@@ -1,69 +1,53 @@
-# ASTRAM Traffic Manager - Event-Driven Congestion Control
+# ASTRAM Traffic Manager
 
-## 🚦 Operational Challenge & Problem Statement
-Political rallies, festivals, sports events, construction activities, and sudden gatherings create localized traffic breakdowns.
+Event-driven congestion control for Bengaluru Traffic Police.
+Built for the Flipkart × BTP Hackathon 2024.
 
-### Why It’s Hard Today:
-* **Event impact** is not quantified in advance.
-* **Resource deployment** is experience-driven.
-* **No post-event learning system** exists.
+## What it does
 
-### Problem Statement Direction:
-How can historical and real-time data be used to forecast event-related traffic impact and recommend optimal manpower, barricading, and diversion plans?
+One FastAPI backend + one React frontend. Submit any traffic event and get:
+- **Severity score** (0–100) predicted from a trained ML regressor
+- **Officer count** and **station recommendation** based on corridor history
+- **Barricade assessment** with confidence level
+- **Diversion route** (cascade-aware, hotspot-penalised) when severity ≥ 40
+- **Learning dashboard** showing model error by corridor, cause volume,
+  time-of-day heatmap, and one-click retraining
 
----
+## Stack
 
-## 🛠️ Work Done So Far
+Backend: Python 3.11, FastAPI, scikit-learn, LightGBM, NetworkX, Folium
+Frontend: React 18, Vite, Recharts, Framer Motion, Leaflet
 
-### 1. Exploratory Data Analysis & Data Cleaning
-**Script**: `eda_and_feature_engineering.py`
-* **Parsed Timestamps**: Converted event start, end, and resolution datetimes.
-* **Target Variable**: Calculated congestion duration in minutes (`closure_min`) using the difference between closed timestamps and start timestamps.
-* **Retained Dataset**: Filtered down to high-quality closed traffic incidents inside Bengaluru.
+## How to run
 
-### 2. Feature Engineering
-* **Temporal Features**: Extracted cyclic `hour` and `dow` (day of week) encodings.
-* **Geographical Hotspots**: Mapped and clustered GPS coordinates.
-* **Categorical Encodings**: Built label encoders for incident metadata (`event_cause`, `priority`, etc).
-* **Saved Outputs**: Saved the final matrix as `engineered_features.csv`.
+See HOW_TO_RUN_PROJECT.md for full setup steps.
 
-### 3. Machine Learning Forecasting
-**Script**: `train_regressors.py`
-We predict the continuous `congestion_score` (resolution duration in minutes).
-* **Models**: Evaluated Random Forest, XGBoost, and LightGBM.
-* **Log-Transformation**: All regressors are wrapped in a `TransformedTargetRegressor` using `np.log1p` and `np.expm1`. This ensures the models predict the "log" of the time, penalizing percentage errors and making the models incredibly robust against long-duration outliers.
-* **Hyperparameter Tuning**: Extended grid search via `RandomizedSearchCV`.
-* **Winner**: The script automatically serializes the highest-scoring model and preprocessor pipeline into `best_congestion_pipeline.pkl`.
+## Files
 
-### 4. Routing Engine API
-**Script**: `diversion_route_planner.py` & `server.py`
-When a corridor is blocked (crash, VIP movement, procession), this module finds the **optimal alternate route** while avoiding cascading congestion.
-1. **Bengaluru Corridor Graph** — Key junctions modeled as a weighted `networkx` graph.
-2. **DBSCAN Hotspot Detection** — Clusters all historical/live events geospatially to identify high-risk congestion zones.
-3. **Cascade-Aware Routing** — Runs Yen's k-shortest paths, penalizing routes that pass near active hotspots.
-4. **FastAPI Engine** — `server.py` exposes the stateless routing engine as REST API endpoints (`/api/scenario/{id}`).
+| File | Purpose |
+|---|---|
+| `eda_and_feature_engineering.py` | Cleans CSV, engineers features, writes `engineered_features.csv` |
+| `train_regressors.py` | Trains RF/LightGBM regressors, saves `best_congestion_pipeline.pkl` and `model_metadata.json` |
+| `severity.py` | Loads pipeline, exposes `predict_severity()` |
+| `manpower.py` | Officer formula, barricade heuristic, station recommendation |
+| `diversion_route_planner.py` | Graph, DBSCAN hotspots, Yen's k-shortest-paths, `run_diversion()` |
+| `server.py` | FastAPI app, all endpoints |
+| `config.py` | Shared constants (CSV filename, CBD coordinates) |
+| `graph_config.py` | Junction coordinates and corridor edges |
+| `frontend/` | React/Vite SPA |
 
-### 5. Web App Dashboard
-**Directory**: `/frontend`
-A custom single-page React application built with Vite.
-* **Google Maps Styling**: Clean, modern layout using CartoDB Voyager tiles.
-* **Live Integration**: Fetches dynamic scenario states from the FastAPI backend and instantly renders the primary route (blue), secondary backup (yellow), and blocked segments (red).
-* **Metric Cards**: Auto-updates incident clearance times based on ML inferences.
+## API endpoints
 
----
-
-## 📁 Project Directory Structure
-* `eda_and_feature_engineering.py` — Pipeline script for cleaning, EDA, and feature matrix extraction.
-* `train_regressors.py` — Script to train, evaluate, and tune the regression models.
-* `best_congestion_pipeline.pkl` — The serialized Scikit-Learn model pipeline.
-* `diversion_route_planner.py` — Headless cascade-aware routing engine (NetworkX).
-* `server.py` — FastAPI application wrapping the routing engine.
-* `frontend/` — React/Vite single-page application dashboard.
-* `requirements.txt` — Python dependencies.
-* `HOW_TO_RUN_PROJECT.md` — Detailed instructions on starting the servers.
-
----
-
-## 🚀 How to Run the Project
-
-For a comprehensive step-by-step guide on installing dependencies, training models, and starting both the API and Web App servers, please refer to the **[HOW_TO_RUN_PROJECT.md](./HOW_TO_RUN_PROJECT.md)** file!
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/state` | Full graph state for initial map load |
+| GET | `/api/scenario/{index}` | One of 3 pre-built demo scenarios (0, 1, 2) |
+| GET | `/api/corridors` | List of all corridors for dropdowns |
+| GET | `/api/nodes` | Junction id→name map for dropdowns |
+| POST | `/api/event` | Full event analysis (severity + manpower + diversion) |
+| POST | `/api/reset-load` | Reset in-memory station load counters |
+| GET | `/api/learning/overview` | Model metrics and dataset stats |
+| GET | `/api/learning/error-by-corridor` | Mean prediction error per corridor |
+| GET | `/api/learning/cause-volume` | Cause count vs median closure duration |
+| GET | `/api/learning/time-heatmap` | Event volume by day-of-week × hour |
+| POST | `/api/retrain` | Re-run feature engineering + training, hot-reload model |

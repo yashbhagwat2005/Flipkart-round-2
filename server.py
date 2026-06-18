@@ -1,10 +1,11 @@
 import json
 import subprocess
 import sys
+import time
+from collections import defaultdict
 from pathlib import Path
 
 import joblib
-import networkx as nx
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -56,7 +57,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.state.active_load = {}
+
+# active_load: {station_name: [timestamp, timestamp, ...]}
+# Each entry is a list of Unix timestamps when that station was assigned.
+# Entries older than LOAD_WINDOW_SECONDS are considered resolved.
+LOAD_WINDOW_SECONDS = 3600  # 1 hour — adjust for demo (try 300 for a 5-min demo)
+app.state.active_load: dict[str, list[float]] = defaultdict(list)
+
+
+def current_load_snapshot() -> dict:
+    now = time.time()
+    cutoff = now - LOAD_WINDOW_SECONDS
+    return {
+        name: sum(1 for t in timestamps if t > cutoff)
+        for name, timestamps in app.state.active_load.items()
+    }
 
 
 def _load_model_metadata():
@@ -200,6 +215,7 @@ class EventInput(BaseModel):
 @app.get("/api/state")
 def get_state():
     return {
+        "active_load": current_load_snapshot(),
         "nodes": NODES_DICT,
         "scenarios": SCENARIOS,
         "hotspots": [
@@ -265,7 +281,7 @@ def analyze_event(payload: EventInput):
         payload.longitude,
         STATION_COORDS,
         PRIMARY_STATION.get(payload.corridor),
-        app.state.active_load,
+        current_load_snapshot(),
         haversine_km,
     )
 
@@ -313,16 +329,16 @@ def analyze_event(payload: EventInput):
         f"Officers should arrive by {arrive_by}."
     )
 
+    now = time.time()
     for station in stations:
-        name = station["name"]
-        app.state.active_load[name] = app.state.active_load.get(name, 0) + 1
+        app.state.active_load[station["name"]].append(now)
 
     return result
 
 
 @app.post("/api/reset-load")
 def reset_load():
-    app.state.active_load = {}
+    app.state.active_load = defaultdict(list)
     return {"status": "reset"}
 
 

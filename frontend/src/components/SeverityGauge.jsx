@@ -34,7 +34,13 @@ export default function SeverityGauge({ score, label, minutes }) {
       <div className="gauge-value">
         <strong className="numeric">{score}</strong>
         <span>{label}</span>
-        {minutes != null && <small className="numeric">{minutes.toLocaleString()} min predicted</small>}
+        {minutes != null && (
+          <small className="numeric">
+            {minutes >= 60
+              ? `~${Math.floor(minutes / 60)}h ${Math.round(minutes % 60)}m predicted clearance`
+              : `~${Math.round(minutes)}min predicted clearance`}
+          </small>
+        )}
       </div>
     </div>
   );

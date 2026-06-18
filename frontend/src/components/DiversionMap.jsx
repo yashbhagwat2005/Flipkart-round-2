@@ -1,5 +1,4 @@
-import { useEffect, useMemo } from 'react';
-import { animate, useReducedMotion } from 'framer-motion';
+import React, { useEffect, useMemo } from 'react';
 import L from 'leaflet';
 import {
   Circle,
@@ -20,34 +19,7 @@ function MapFitter({ bounds }) {
   return null;
 }
 
-function AnimatedPolyline({ positions, color, weight, dashArray }) {
-  const map = useMap();
-  const reduceMotion = useReducedMotion();
-  const positionsKey = JSON.stringify(positions);
 
-  useEffect(() => {
-    if (positions.length < 2) return undefined;
-    const line = L.polyline(positions, { color, weight, dashArray }).addTo(map);
-    const path = line.getElement();
-    let controls;
-    if (path && !reduceMotion) {
-      const length = path.getTotalLength();
-      path.style.strokeDasharray = `${length}`;
-      path.style.strokeDashoffset = `${length}`;
-      controls = animate(length, 0, {
-        duration: 0.4,
-        ease: 'easeOut',
-        onUpdate: (value) => { path.style.strokeDashoffset = `${value}`; },
-      });
-    }
-    return () => {
-      controls?.stop();
-      map.removeLayer(line);
-    };
-  }, [map, positionsKey, color, weight, dashArray, reduceMotion]);
-
-  return null;
-}
 
 const markerIcon = (color, label) => L.divIcon({
   className: 'custom-div-icon',
@@ -55,6 +27,8 @@ const markerIcon = (color, label) => L.divIcon({
   iconSize: [34, 34],
   iconAnchor: [17, 17],
 });
+
+
 
 function routeNodes(routeData, custom, type) {
   if (!routeData) return [];
@@ -93,24 +67,34 @@ export default function DiversionMap({ networkState, routeData, custom }) {
     <section className="map-view">
       <div className="map-overlay metrics-row">
         <article>
-          <span><AlertTriangle size={14} /> Blocked corridor</span>
+          <span><AlertTriangle size={14} /> ⛔ Blocked corridor</span>
           <strong>{scenario?.blocked || 'No route selected'}</strong>
         </article>
         <article>
-          <span><Navigation2 size={14} /> Primary</span>
+          <span><Navigation2 size={14} /> Primary route</span>
           <strong className="numeric">{primaryDistance ?? 0} km</strong>
         </article>
         <article>
-          <span><Route size={14} /> Secondary</span>
+          <span><Route size={14} /> Secondary route</span>
           <strong className="numeric">{secondaryDistance ?? 0} km</strong>
         </article>
+      </div>
+
+      <div className="map-overlay map-legend">
+        <p className="eyebrow" style={{ marginBottom: 12 }}>Map Legend</p>
+        <ul>
+          <li><span className="legend-line blocked" /> Blocked Corridor</li>
+          <li><span className="legend-line primary" /> Primary Route</li>
+          <li><span className="legend-line secondary" /> Diversion Route</li>
+          <li><span className="legend-circle hotspot" /> Congestion Hotspot</li>
+        </ul>
       </div>
 
       <div className="map-overlay instruction-panel">
         <Radio size={24} />
         <div>
-          <span>Radio dispatch</span>
-          <p>{instruction || 'Choose a demo scenario or submit an event to generate a diversion.'}</p>
+          <span>Officer dispatch instruction</span>
+          <p>{instruction || 'Select a scenario from the Analyze Event tab, or submit a new incident\n to auto-generate a cascade-aware diversion route.'}</p>
         </div>
       </div>
 
@@ -156,8 +140,14 @@ export default function DiversionMap({ networkState, routeData, custom }) {
           />
         ))}
 
-        <AnimatedPolyline positions={secondaryPositions} color="#38BDF8" weight={5} dashArray="10 8" />
-        <AnimatedPolyline positions={primaryPositions} color="#F5A524" weight={6} />
+        <Polyline 
+          positions={secondaryPositions} 
+          pathOptions={{ color: '#38BDF8', weight: 5, dashArray: '10 8' }} 
+        />
+        <Polyline 
+          positions={primaryPositions} 
+          pathOptions={{ color: '#F5A524', weight: 6 }} 
+        />
 
         {scenario?.origin && nodeData[scenario.origin] && (
           <Marker

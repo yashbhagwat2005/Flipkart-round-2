@@ -1,62 +1,71 @@
-# ASTRAM Traffic Manager - Project Setup & Execution Guide
+# How to run ASTRAM Traffic Manager
 
-This document outlines the step-by-step process for setting up the environment, training the machine learning models, and running the full-stack web application (FastAPI + React).
+## Prerequisites
 
----
+- Python 3.11+
+- Node.js 18+
+- The ASTRAM CSV file in the repo root directory
 
-## 1. Project Architecture
+## First-time setup
 
-* **Backend Engine (Python)**: Handles data engineering, ML inference, shortest-path graph algorithms (NetworkX), and DBSCAN hotspot clustering. Exposed via FastAPI.
-* **Frontend Web App (React + Vite)**: A dynamic single-page dashboard with glassmorphism/Material styling, communicating with the Python backend to render live `react-leaflet` maps.
-
----
-
-## 2. Environment Setup
-
-### Install Python Backend Dependencies
-Ensure you have Python 3.10+ installed. Open a terminal in the root directory (`Flipkart-round-2`) and install the required machine learning and web server packages:
-
+### 1. Install Python dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### Install Frontend Dependencies
-The React app uses Node.js. Make sure you have Node.js installed, then navigate to the `frontend` folder to install the `node_modules`:
+### 2. Build the feature matrix and train the model
+```bash
+python eda_and_feature_engineering.py
+python train_regressors.py
+```
+This creates `engineered_features.csv`, `best_congestion_pipeline.pkl`,
+and `model_metadata.json`. Check the printed MAE and R² before continuing.
 
+### 3. Install frontend dependencies
 ```bash
 cd frontend
 npm install
 ```
 
----
+## Running the app
 
-## 3. Execution Order
-
-### Step A: Data Engineering & Model Training (Optional/One-Time)
-If you need to re-train the models or re-process the data from the raw CSV, run these scripts in order. *(Note: We already have `best_congestion_pipeline.pkl` and `engineered_features.csv` generated, so this step can be skipped if you just want to run the app).*
-
-1. **Feature Engineering**: Cleans raw data and engineers cyclic temporal features and geospatial distances.
-   ```bash
-   python eda_and_feature_engineering.py
-   ```
-2. **Train Regressors**: Trains Random Forest, XGBoost, and LightGBM wrapped in Log-Transformers. Auto-selects the best model and saves it.
-   ```bash
-   python train_regressors.py
-   ```
-
-### Step B: Start the FastAPI Backend
-The backend must be running for the frontend to receive graph data, scenarios, and routing logic. Open a terminal in the root folder:
-
+### Terminal 1 — backend
 ```bash
 python server.py
 ```
-*The server will start on `http://127.0.0.1:8000`.*
+API is live at http://127.0.0.1:8000
 
-### Step C: Start the React Frontend
-Open a **new, separate terminal**, navigate to the `frontend` folder, and launch the Vite development server:
-
+### Terminal 2 — frontend
 ```bash
 cd frontend
 npm run dev
 ```
-*Vite will provide a localhost URL (usually `http://localhost:5173`). Open this link in your web browser to view the ASTRAM Traffic Manager dashboard!*
+App is live at http://localhost:5173
+
+## Demo flow
+
+1. Open the app. The three quick-demo scenario cards pre-fill the form.
+2. Click any scenario card or fill the form manually and click Analyze.
+3. Switch to Diversion Map to see the route visualisation.
+4. Switch to Learning Dashboard to see model accuracy and error patterns.
+5. Click Retrain to re-run the full pipeline against the latest data.
+
+## Resetting station load between demo runs
+
+Between demo runs, station load counters accumulate. Reset them:
+```bash
+curl -X POST http://127.0.0.1:8000/api/reset-load
+```
+Or add a reset button call at the start of each demo run.
+
+## Troubleshooting
+
+**Backend won't start:** make sure `best_congestion_pipeline.pkl` exists.
+Run `python train_regressors.py` if it's missing.
+
+**Frontend shows "Backend unreachable":** confirm the backend is running
+on port 8000 and CORS is open (it is by default).
+
+**Severity score is always 100:** the model may be trained on unfiltered
+data with extreme outliers. Re-run `eda_and_feature_engineering.py` and
+`train_regressors.py` to regenerate the model.

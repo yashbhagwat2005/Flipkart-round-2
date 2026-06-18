@@ -1,15 +1,45 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, CalendarClock, MapPin, Route } from 'lucide-react';
 
-const CAUSES = [
-  'public_event',
-  'vip_movement',
-  'procession',
-  'protest',
-  'construction',
-  'tree_fall',
-  'vehicle_breakdown',
-  'others',
+const formatNodeName = (name) => name.replace(/_/g, ' ');
+
+const formatHour = (h) => {
+  const period = h < 12 ? 'AM' : 'PM';
+  const display = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${display}:00 ${period}`;
+};
+
+const CAUSE_OPTIONS = [
+  { value: 'public_event',      label: '🎪 Public Event / Rally' },
+  { value: 'vip_movement',      label: '🚨 VIP / VVIP Movement' },
+  { value: 'procession',        label: '🕌 Religious Procession' },
+  { value: 'protest',           label: '✊ Protest / Demonstration' },
+  { value: 'construction',      label: '🚧 Road Construction' },
+  { value: 'tree_fall',         label: '🌳 Tree Fall / Obstruction' },
+  { value: 'vehicle_breakdown', label: '🚗 Vehicle Breakdown' },
+  { value: 'others',            label: '⚠️ Other Incident' },
+];
+
+const PRIORITY_OPTIONS = [
+  { value: 'Low',    label: 'Low — Monitor only' },
+  { value: 'Medium', label: 'Medium — Pre-deploy units' },
+  { value: 'High',   label: 'High — Immediate response' },
+];
+
+const DAY_OPTIONS = [
+  { value: 0, label: 'Monday' },
+  { value: 1, label: 'Tuesday' },
+  { value: 2, label: 'Wednesday' },
+  { value: 3, label: 'Thursday' },
+  { value: 4, label: 'Friday' },
+  { value: 5, label: 'Saturday' },
+  { value: 6, label: 'Sunday' },
+];
+
+const SCENARIO_SHORT = [
+  { title: 'Vehicle Breakdown', subtitle: 'Mysore Road → CBD', emoji: '🚗' },
+  { title: 'VIP Movement',      subtitle: 'Bellary Road 1',   emoji: '🚨' },
+  { title: 'Mass Procession',   subtitle: 'ORR East · Silk Board', emoji: '🕌' },
 ];
 
 const ZONES = [
@@ -151,136 +181,153 @@ export default function EventForm({
     <aside className="glass-panel event-panel">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Command intake</p>
-          <h2>Analyze an event</h2>
+          <p className="eyebrow">Incident intake</p>
+          <h2>Log a new incident</h2>
         </div>
         <Activity size={20} />
       </div>
 
+      <p className="scenario-hint">
+        Try a demo scenario or fill the form below
+      </p>
+
       <div className="scenario-strip">
-        {scenarios.map((scenario, index) => (
-          <button
-            type="button"
-            key={scenario.desc}
-            className={`scenario-card ${selectedScenario === index ? 'active' : ''}`}
-            onClick={() => selectScenario(scenario, index)}
-          >
-            <Route size={15} />
-            <span>{scenario.desc}</span>
-          </button>
-        ))}
+        {scenarios.map((scenario, index) => {
+          const short = SCENARIO_SHORT[index] || { title: `Scenario ${index + 1}`, subtitle: scenario.desc, emoji: '📍' };
+          return (
+            <button
+              type="button"
+              key={scenario.desc}
+              className={`scenario-card ${selectedScenario === index ? 'active' : ''}`}
+              onClick={() => selectScenario(scenario, index)}
+            >
+              <span className="scenario-emoji">{short.emoji}</span>
+              <span className="scenario-text">
+                <strong>{short.title}</strong>
+                <small>{short.subtitle}</small>
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <form onSubmit={submit} className="event-form">
-        <div className="field-grid">
+        <div className="form-section">
+          <p className="form-section-label">Incident details</p>
+          <div className="field-grid">
+            <label>
+              What type of incident?
+              <select value={form.event_cause} onChange={(e) => update('event_cause', e.target.value)}>
+                {CAUSE_OPTIONS.map(({ value, label }) => (
+                  <option value={value} key={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Priority
+              <select value={form.priority} onChange={(e) => update('priority', e.target.value)}>
+                {PRIORITY_OPTIONS.map(({ value, label }) => (
+                  <option value={value} key={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
           <label>
-            Event cause
-            <select value={form.event_cause} onChange={(e) => update('event_cause', e.target.value)}>
-              {CAUSES.map((cause) => <option key={cause}>{cause}</option>)}
-            </select>
-          </label>
-          <label>
-            Priority
-            <select value={form.priority} onChange={(e) => update('priority', e.target.value)}>
-              {['Low', 'Medium', 'High'].map((priority) => <option key={priority}>{priority}</option>)}
+            Affected corridor
+            <select value={form.corridor} onChange={(e) => update('corridor', e.target.value)}>
+              {!corridors.includes('CBD 2') && <option>CBD 2</option>}
+              {corridors.map((corridor) => <option key={corridor}>{corridor}</option>)}
             </select>
           </label>
         </div>
 
-        <label>
-          Corridor / blocked corridor
-          <select value={form.corridor} onChange={(e) => update('corridor', e.target.value)}>
-            {!corridors.includes('CBD 2') && <option>CBD 2</option>}
-            {corridors.map((corridor) => <option key={corridor}>{corridor}</option>)}
-          </select>
-        </label>
-
-        <label>
-          Zone
-          <select value={form.zone} onChange={(e) => update('zone', e.target.value)}>
-            {ZONES.map((zone) => <option key={zone}>{zone}</option>)}
-          </select>
-        </label>
-
-        <div className="field-grid">
+        <div className="form-section">
+          <p className="form-section-label">Location & timing</p>
           <label>
-            Origin
-            <select value={form.origin} onChange={(e) => update('origin', e.target.value)}>
-              {nodeEntries.map(([id, name]) => <option value={id} key={id}>{name}</option>)}
+            City zone
+            <select value={form.zone} onChange={(e) => update('zone', e.target.value)}>
+              {ZONES.map((zone) => <option key={zone}>{zone}</option>)}
             </select>
           </label>
-          <label>
-            Destination
-            <select value={form.destination} onChange={(e) => update('destination', e.target.value)}>
-              {nodeEntries.map(([id, name]) => <option value={id} key={id}>{name}</option>)}
-            </select>
-          </label>
-        </div>
 
-        <div className="field-grid">
-          <label>
-            Day
-            <select value={form.dow} onChange={(e) => update('dow', Number(e.target.value))}>
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
-                <option value={index} key={day}>{day}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Crowd size
+          <div className="field-grid">
+            <label>
+              Day of incident
+              <select value={form.dow} onChange={(e) => update('dow', Number(e.target.value))}>
+                {DAY_OPTIONS.map(({ value, label }) => (
+                  <option value={value} key={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Expected crowd size
+              <input
+                type="number"
+                min="0"
+                step="1000"
+                value={form.crowd_size}
+                onChange={(e) => update('crowd_size', Number(e.target.value))}
+              />
+            </label>
+          </div>
+
+          <label className="range-field">
+            <span>Time of incident <strong className="numeric">{formatHour(form.hour)}</strong></span>
             <input
-              type="number"
+              type="range"
               min="0"
-              step="1000"
-              value={form.crowd_size}
-              onChange={(e) => update('crowd_size', Number(e.target.value))}
+              max="23"
+              value={form.hour}
+              onChange={(e) => update('hour', Number(e.target.value))}
             />
           </label>
+
+          <details className="coord-details">
+            <summary>📍 Coordinates (auto-filled from origin)</summary>
+            <div className="field-grid" style={{ marginTop: 10 }}>
+              <label>
+                Latitude
+                <input type="number" step="0.0001" value={form.latitude}
+                  onChange={(e) => update('latitude', Number(e.target.value))} />
+              </label>
+              <label>
+                Longitude
+                <input type="number" step="0.0001" value={form.longitude}
+                  onChange={(e) => update('longitude', Number(e.target.value))} />
+              </label>
+            </div>
+          </details>
         </div>
 
-        <label className="range-field">
-          <span>Event hour <strong className="numeric">{String(form.hour).padStart(2, '0')}:00</strong></span>
-          <input
-            type="range"
-            min="0"
-            max="23"
-            value={form.hour}
-            onChange={(e) => update('hour', Number(e.target.value))}
-          />
-        </label>
+        <div className="form-section">
+          <p className="form-section-label">Diversion routing</p>
+          <div className="field-grid">
+            <label>
+              Traffic origin point
+              <select value={form.origin} onChange={(e) => update('origin', e.target.value)}>
+                {nodeEntries.map(([id, name]) => <option value={id} key={id}>{formatNodeName(name)}</option>)}
+              </select>
+            </label>
+            <label>
+              Traffic destination
+              <select value={form.destination} onChange={(e) => update('destination', e.target.value)}>
+                {nodeEntries.map(([id, name]) => <option value={id} key={id}>{formatNodeName(name)}</option>)}
+              </select>
+            </label>
+          </div>
 
-        {/* Coordinates — auto-populated from origin node, editable for precision placement */}
-        <div className="field-grid">
-          <label>
-            <span className="coord-label"><MapPin size={11} /> Latitude</span>
-            <input
-              type="number"
-              step="0.0001"
-              value={form.latitude}
-              onChange={(e) => update('latitude', Number(e.target.value))}
-            />
-          </label>
-          <label>
-            <span className="coord-label"><MapPin size={11} /> Longitude</span>
-            <input
-              type="number"
-              step="0.0001"
-              value={form.longitude}
-              onChange={(e) => update('longitude', Number(e.target.value))}
-            />
-          </label>
-        </div>
-
-        <div className="toggle-row">
-          <span><CalendarClock size={16} /> Event planning</span>
-          <div className="segmented">
-            <button type="button" className={form.planned ? 'active' : ''} onClick={() => update('planned', true)}>Planned</button>
-            <button type="button" className={!form.planned ? 'active' : ''} onClick={() => update('planned', false)}>Unplanned</button>
+          <div className="toggle-row">
+            <span><CalendarClock size={16} /> Event planning</span>
+            <div className="segmented">
+              <button type="button" className={form.planned ? 'active' : ''} onClick={() => update('planned', true)}>Planned</button>
+              <button type="button" className={!form.planned ? 'active' : ''} onClick={() => update('planned', false)}>Unplanned</button>
+            </div>
           </div>
         </div>
 
         <button className="primary-button" disabled={submitting || !nodeEntries.length}>
-          {submitting ? <><span className="spinner" /> Analyzing</> : 'Run operational analysis'}
+          {submitting ? <><span className="spinner" /> Calculating...</> : 'Get deployment plan'}
         </button>
       </form>
     </aside>

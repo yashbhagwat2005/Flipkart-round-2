@@ -1,6 +1,5 @@
 fastapi==0.126.0
 uvicorn==0.39.0
-xgboost==3.3.0
 lightgbm==4.6.0
 scikit-learn==1.8.0
 networkx==3.6.1

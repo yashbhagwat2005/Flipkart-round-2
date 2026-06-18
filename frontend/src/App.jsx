@@ -11,9 +11,9 @@ import SeverityGauge from './components/SeverityGauge';
 const API = 'http://127.0.0.1:8000';
 
 const views = [
-  { id: 'report', label: 'Situation Report', icon: Siren },
-  { id: 'map', label: 'Diversion Map', icon: Map },
-  { id: 'learning', label: 'Learning Dashboard', icon: BrainCircuit },
+  { id: 'report', label: 'Analyze Event', icon: Siren },
+  { id: 'map', label: 'Route Map', icon: Map },
+  { id: 'learning', label: 'Model Performance', icon: BrainCircuit },
 ];
 
 export default function App() {
@@ -32,7 +32,7 @@ export default function App() {
   const reduceMotion = useReducedMotion();
 
   const reportFailure = useCallback(() => {
-    setNetworkError('Backend unreachable — check the server is running');
+    setNetworkError('Cannot connect to server — make sure python server.py is running on port 8000');
   }, []);
 
   useEffect(() => {
@@ -118,7 +118,7 @@ export default function App() {
           <span className="brand-icon"><ShieldAlert size={24} /></span>
           <div>
             <strong>ASTRAM</strong>
-            <span>Traffic Command</span>
+            <span>Bengaluru Traffic Command · Event Intelligence</span>
           </div>
         </div>
         <nav className="view-switcher" aria-label="Main views">
@@ -159,14 +159,20 @@ export default function App() {
               <section className="analysis-column">
                 <div className="glass-panel severity-panel">
                   <div>
-                    <p className="eyebrow">Predicted operational severity</p>
-                    <h2>Live impact assessment</h2>
+                    <p className="eyebrow">ML Impact Prediction</p>
+                    <h2>Severity forecast</h2>
                   </div>
                   <SeverityGauge
                     score={eventResult?.severity_score || 0}
                     label={eventResult?.severity_label || 'Awaiting event'}
                     minutes={eventResult?.predicted_closure_min}
                   />
+                  {!eventResult && (
+                    <p className="gauge-hint">
+                      Submit an incident below to get a predicted severity score,
+                      estimated clearance time, and recommended deployment.
+                    </p>
+                  )}
                 </div>
                 <ResourcePanel result={eventResult} />
               </section>
