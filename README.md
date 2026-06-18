@@ -43,6 +43,20 @@ We split the dataset into an **80-20 train-test split** to train three baseline 
 * **Serialization**: Saved the full preprocessor and regressor pipeline as `best_congestion_pipeline.pkl` using `joblib`.
 * **Plots**: Saved feature importances as `feature_importance.png` and prediction scatter plot as `predictions_vs_actual.png`.
 
+### 4. Diversion Route Planner with Cascade Awareness
+**Script**: `diversion_route_planner.py`
+
+When a corridor is blocked (crash, VIP movement, procession), this module finds the **optimal alternate route** while avoiding cascading congestion onto already-busy secondary roads.
+
+**How it works:**
+1. **Bengaluru Corridor Graph** — 16 key junctions and all ASTRAM corridors modelled as a weighted `networkx` graph. Edge weight = distance × (1 + historical event density), so high-incident roads cost more and are naturally deprioritised.
+2. **DBSCAN Hotspot Detection** — Clusters all events geospatially (haversine metric, eps = 800m) to identify live congestion zones in the city.
+3. **Cascade-Aware Routing** — Runs Yen's k-shortest paths (blocking the impacted corridor), then filters out any candidate route whose path nodes fall within 1.2 km of a significant hotspot — preventing spillover jams on the diversion road itself.
+4. **Output** — Primary route (green) + secondary backup (amber) on an interactive Folium dark-map, plus a **one-sentence officer instruction** ready for radio dispatch.
+
+**Sample output:**
+> *"Divert Mysore Road traffic via Magadi Road → Bannerghatta Road from Kengeri to City Center (MG Road)."*
+
 ---
 
 ## 📁 Project Directory Structure
@@ -51,6 +65,7 @@ We split the dataset into an **80-20 train-test split** to train three baseline 
 * `engineered_features.csv` — Engineered dataset matrix ready for ML models.
 * `train_regressors.py` — Script to train, evaluate, tune (via RandomizedSearchCV), and output the model comparison and plots.
 * `best_congestion_pipeline.pkl` — The saved Scikit-Learn pipeline (contains both the ordinal encoders and the XGBoost regressor).
+* `diversion_route_planner.py` — Cascade-aware diversion routing engine (DBSCAN + Dijkstra/Yen's algorithm + Folium map).
 * `feature_importance.png` — Visualization of feature impact on the model.
 * `predictions_vs_actual.png` — Scatter plot of predicted values vs actual values.
 * `README.md` — Project description and setup instructions.
@@ -62,7 +77,7 @@ We split the dataset into an **80-20 train-test split** to train three baseline 
 ### Prerequisites:
 Install the required machine learning and plotting dependencies:
 ```bash
-pip install pandas numpy scikit-learn xgboost matplotlib seaborn joblib tabulate
+pip install pandas numpy scikit-learn xgboost matplotlib seaborn joblib tabulate networkx folium
 ```
 
 ### 1. Run Data Preprocessing & Feature Engineering:
@@ -75,4 +90,10 @@ This prints the dataset cleaning statistics, distributions of incident categorie
 ```bash
 python train_regressors.py
 ```
-This trains the models, displays the comparison table, saves the best model as `best_congestion_model.pkl`, and exports the evaluation charts.
+This trains the models, displays the comparison table, saves the best model as `best_congestion_pipeline.pkl`, and exports the evaluation charts.
+
+### 3. Run the Diversion Route Planner:
+```bash
+python diversion_route_planner.py
+```
+This detects live hotspot clusters, runs 3 demo blocking scenarios, prints officer instructions, and saves interactive maps as `diversion_map_s1.html`, `diversion_map_s2.html`, `diversion_map_s3.html`.
