@@ -10,6 +10,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OrdinalEncoder
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
+from lightgbm import LGBMRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -32,7 +33,7 @@ def load_and_prepare_data(csv_filename: str):
     
     # Define features
     categorical_cols = ['event_cause', 'corridor', 'zone', 'priority']
-    numeric_cols = ['requires_road_closure_bool', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 'latitude', 'longitude']
+    numeric_cols = ['requires_road_closure_bool', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 'latitude', 'longitude', 'is_weekend', 'distance_to_cbd']
     
     feature_cols = categorical_cols + numeric_cols
     
@@ -72,26 +73,46 @@ def train_and_evaluate_models(X_train, X_test, y_train, y_test, categorical_cols
     xgb_base = XGBRegressor(random_state=42, n_jobs=-1)
     lr_base = LinearRegression()
     
+    # Wrap base models to predict log(congestion_score)
+    rf_log = TransformedTargetRegressor(regressor=rf_base, func=np.log1p, inverse_func=np.expm1)
+    xgb_log = TransformedTargetRegressor(regressor=xgb_base, func=np.log1p, inverse_func=np.expm1)
+    lr_log = TransformedTargetRegressor(regressor=lr_base, func=np.log1p, inverse_func=np.expm1)
+    lgbm_log = TransformedTargetRegressor(regressor=LGBMRegressor(random_state=42, n_jobs=-1, verbose=-1), func=np.log1p, inverse_func=np.expm1)
+    
     # Define models and their hyperparameter grids
     models_to_train = {
         "Linear Regression": {
-            "model": lr_base,
+            "model": lr_log,
             "params": {} # No hyperparameters to tune
         },
         "Random Forest Regressor": {
-            "model": rf_base,
+            "model": rf_log,
             "params": {
-                'model__n_estimators': [100, 200, 300],
-                'model__max_depth': [None, 10, 20, 30],
-                'model__min_samples_split': [2, 5, 10]
+                'model__regressor__n_estimators': [100, 200, 300, 500],
+                'model__regressor__max_depth': [None, 10, 20, 30, 40],
+                'model__regressor__min_samples_split': [2, 5, 10],
+                'model__regressor__min_samples_leaf': [1, 2, 4]
             }
         },
         "XGBoost Regressor": {
-            "model": xgb_base,
+            "model": xgb_log,
             "params": {
-                'model__n_estimators': [100, 200, 300],
-                'model__max_depth': [3, 6, 9],
-                'model__learning_rate': [0.01, 0.1, 0.2]
+                'model__regressor__n_estimators': [100, 200, 300, 500],
+                'model__regressor__max_depth': [3, 5, 7, 9, 12],
+                'model__regressor__learning_rate': [0.01, 0.05, 0.1, 0.2],
+                'model__regressor__subsample': [0.7, 0.8, 0.9, 1.0],
+                'model__regressor__colsample_bytree': [0.7, 0.8, 0.9, 1.0]
+            }
+        },
+        "LightGBM Regressor": {
+            "model": lgbm_log,
+            "params": {
+                'model__regressor__n_estimators': [100, 200, 300, 500],
+                'model__regressor__max_depth': [-1, 10, 20, 30],
+                'model__regressor__learning_rate': [0.01, 0.05, 0.1, 0.2],
+                'model__regressor__num_leaves': [31, 50, 100, 200],
+                'model__regressor__subsample': [0.7, 0.8, 0.9, 1.0],
+                'model__regressor__colsample_bytree': [0.7, 0.8, 0.9, 1.0]
             }
         }
     }
@@ -108,8 +129,8 @@ def train_and_evaluate_models(X_train, X_test, y_train, y_test, categorical_cols
             search = RandomizedSearchCV(
                 pipeline, 
                 param_distributions=config['params'], 
-                n_iter=5, # Keep it small for quicker execution
-                cv=3, 
+                n_iter=20, # Reduced to 20 so it runs faster locally
+                cv=4,      # Increased cross-validation folds
                 scoring='neg_mean_absolute_error',
                 random_state=42,
                 n_jobs=-1
@@ -151,19 +172,19 @@ def generate_plots(y_test, y_pred_best, best_model_name, best_pipeline, X_train_
     
     # 1. Prediction vs. Actual Plot
     logger.info("Generating Prediction vs. Actual Plot...")
-    plt.figure(figsize=(8, 8))
-    sns.scatterplot(x=y_test, y=y_pred_best, alpha=0.6, color="#2563eb")
+    plt.figure(figsize=(9, 9))
+    sns.scatterplot(x=y_test, y=y_pred_best, alpha=0.7, color="#8b5cf6", edgecolor="w", s=60)
     
     min_val = min(y_test.min(), y_pred_best.min())
     max_val = max(y_test.max(), y_pred_best.max())
-    plt.plot([min_val, max_val], [min_val, max_val], color='red', linestyle='--', lw=2, label="Perfect Forecast")
+    plt.plot([min_val, max_val], [min_val, max_val], color='#ef4444', linestyle='--', lw=2.5, label="Perfect Forecast")
     
-    plt.title(f"Predictions vs. Actuals ({best_model_name})", fontsize=14, fontweight='bold')
-    plt.xlabel("Actual Congestion Score (Minutes)", fontsize=12)
-    plt.ylabel("Predicted Congestion Score (Minutes)", fontsize=12)
-    plt.legend()
+    plt.title(f"Predictions vs. Actuals ({best_model_name})", fontsize=16, fontweight='bold', pad=15)
+    plt.xlabel("Actual Congestion Score (Minutes)", fontsize=13, fontweight='semibold')
+    plt.ylabel("Predicted Congestion Score (Minutes)", fontsize=13, fontweight='semibold')
+    plt.legend(frameon=True, facecolor='white', framealpha=0.9)
     plt.tight_layout()
-    plt.savefig("predictions_vs_actual.png", dpi=300)
+    plt.savefig("predictions_vs_actual.png", dpi=300, bbox_inches='tight')
     plt.close()
     logger.info("Saved predictions vs. actual plot to 'predictions_vs_actual.png'")
     
@@ -180,17 +201,17 @@ def generate_plots(y_test, y_pred_best, best_model_name, best_pipeline, X_train_
         importances = final_regressor.feature_importances_
         indices = np.argsort(importances)[::-1]
         
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(12, 7))
         sns.barplot(
             x=importances[indices],
             y=np.array(feature_names)[indices],
-            palette="viridis"
+            palette="mako"
         )
-        plt.title(f"Feature Importance - {best_model_name}", fontsize=14, fontweight='bold')
-        plt.xlabel("Relative Importance Score", fontsize=12)
-        plt.ylabel("Features", fontsize=12)
+        plt.title(f"Feature Importance - {best_model_name}", fontsize=16, fontweight='bold', pad=15)
+        plt.xlabel("Relative Importance Score", fontsize=13, fontweight='semibold')
+        plt.ylabel("Features", fontsize=13, fontweight='semibold')
         plt.tight_layout()
-        plt.savefig("feature_importance.png", dpi=300)
+        plt.savefig("feature_importance.png", dpi=300, bbox_inches='tight')
         plt.close()
         logger.info("Saved feature importance plot to 'feature_importance.png'")
     else:

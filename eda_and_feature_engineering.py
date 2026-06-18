@@ -6,6 +6,19 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+CBD_LAT = 12.9716
+CBD_LON = 77.5946
+MAX_CLOSURE_MINUTES = 43200  # 30 days
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculates the great-circle distance between two points on the Earth surface."""
+    R = 6371.0  # Earth radius in kilometers
+    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = np.sin(dlat / 2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0)**2
+    return 2 * R * np.arcsin(np.sqrt(a))
+
 def load_data(csv_filename: str) -> pd.DataFrame:
     """Loads the raw CSV dataset."""
     logger.info(f"Loading Dataset: {csv_filename}")
@@ -38,7 +51,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
     # Remove outlier durations (e.g. negative durations or longer than 30 days)
     initial_valid_durations = df['closure_min'].notnull().sum()
-    df_clean = df[(df['closure_min'] >= 0) & (df['closure_min'] <= 43200)].dropna(subset=['latitude', 'longitude'])
+    df_clean = df[(df['closure_min'] >= 0) & (df['closure_min'] <= MAX_CLOSURE_MINUTES)].dropna(subset=['latitude', 'longitude'])
     
     logger.info(f"Total rows with valid closure timestamps: {initial_valid_durations}")
     logger.info(f"Rows retained after removing outliers/null coordinates: {len(df_clean)} (Cleaned shape)")
@@ -58,7 +71,19 @@ def engineer_features(df_clean: pd.DataFrame) -> pd.DataFrame:
     
     df_clean['dow_sin'] = np.sin(2 * np.pi * df_clean['dow'] / 7.0)
     df_clean['dow_cos'] = np.cos(2 * np.pi * df_clean['dow'] / 7.0)
-    logger.info("Extracted temporal cyclical features: 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos'")
+    
+    # Weekend indicator
+    df_clean['is_weekend'] = df_clean['dow'].isin([5, 6]).astype(int)
+    
+    # Distance to CBD
+    df_clean['distance_to_cbd'] = haversine_km(
+        df_clean['latitude'].values, 
+        df_clean['longitude'].values, 
+        CBD_LAT, 
+        CBD_LON
+    )
+    
+    logger.info("Extracted temporal cyclical features and spatial features ('is_weekend', 'distance_to_cbd')")
     
     # Create target variable: severity binned as:
     # Low (0 to 60 mins), Medium (60 to 300 mins), High (over 300 mins)
@@ -69,7 +94,7 @@ def engineer_features(df_clean: pd.DataFrame) -> pd.DataFrame:
     features = [
         'event_cause', 'corridor', 'zone', 'priority',
         'requires_road_closure_bool', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos',
-        'latitude', 'longitude'
+        'is_weekend', 'latitude', 'longitude', 'distance_to_cbd'
     ]
     
     feature_matrix = df_clean[features + ['closure_min', 'severity']]
