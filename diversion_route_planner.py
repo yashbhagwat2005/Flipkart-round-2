@@ -16,6 +16,7 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 import folium
+import requests
 from sklearn.cluster import DBSCAN
 from itertools import islice
 
@@ -240,6 +241,30 @@ def path_summary(G, path):
     )
     return f"{' → '.join(path)}  [{dist:.1f} km]"
 
+def fetch_osrm_route(G, path):
+    if not path or len(path) < 2:
+        return None
+    coords = []
+    for node in path:
+        lon = G.nodes[node]["lon"]
+        lat = G.nodes[node]["lat"]
+        coords.append(f"{lon},{lat}")
+    coord_string = ";".join(coords)
+    url = f"http://router.project-osrm.org/route/v1/driving/{coord_string}?overview=full&geometries=geojson"
+    try:
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("code") == "Ok" and len(data.get("routes", [])) > 0:
+                route = data["routes"][0]
+                return {
+                    "distance_km": route["distance"] / 1000.0,
+                    "duration_min": route["duration"] / 60.0,
+                    "geometry": route["geometry"]["coordinates"] # [lon, lat] points
+                }
+    except Exception as e:
+        print(f"OSRM Error: {e}")
+    return None
 
 # ──────────────────────────────────────────────────────────
 # 6.  MAIN DEMO
@@ -356,6 +381,8 @@ def run_diversion(
         "secondary_corridors": secondary_corridors,
         "primary_distance_km": round(_path_weight_km(G, primary), 1),
         "secondary_distance_km": round(_path_weight_km(G, secondary), 1),
+        "primary_osrm": fetch_osrm_route(G, primary),
+        "secondary_osrm": fetch_osrm_route(G, secondary),
         "hotspot_count": len(hotspots),
         "officer_instruction": officer_instruction(
             G, blocked_corridor, origin, destination, primary

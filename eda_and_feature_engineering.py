@@ -82,7 +82,21 @@ def engineer_features(df_clean: pd.DataFrame) -> pd.DataFrame:
         CBD_LON
     )
     
-    logger.info("Extracted temporal cyclical features and spatial features ('is_weekend', 'distance_to_cbd')")
+    # Historical density (count of events per corridor/zone)
+    corridor_counts = df_clean['corridor'].value_counts()
+    zone_counts = df_clean['zone'].value_counts()
+    df_clean['historical_corridor_density'] = df_clean['corridor'].map(corridor_counts)
+    df_clean['historical_zone_density'] = df_clean['zone'].map(zone_counts)
+    
+    # Save the mappings for inference
+    import json
+    with open("density_mappings.json", "w") as f:
+        json.dump({
+            "corridor": corridor_counts.to_dict(),
+            "zone": zone_counts.to_dict()
+        }, f)
+        
+    logger.info("Extracted temporal cyclical features, spatial features, and historical density features.")
     
     # Create target variable: severity binned as:
     # Low (0 to 60 mins), Medium (60 to 300 mins), High (over 300 mins)
@@ -93,7 +107,8 @@ def engineer_features(df_clean: pd.DataFrame) -> pd.DataFrame:
     features = [
         'event_cause', 'corridor', 'zone', 'priority',
         'requires_road_closure_bool', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos',
-        'is_weekend', 'latitude', 'longitude', 'distance_to_cbd'
+        'is_weekend', 'latitude', 'longitude', 'distance_to_cbd',
+        'historical_corridor_density', 'historical_zone_density'
     ]
     
     feature_matrix = df_clean[features + ['closure_min', 'severity']]

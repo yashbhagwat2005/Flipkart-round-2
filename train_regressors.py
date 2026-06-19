@@ -34,7 +34,11 @@ def load_and_prepare_data(csv_filename: str):
     
     # Define features
     categorical_cols = ['event_cause', 'corridor', 'zone', 'priority']
-    numeric_cols = ['requires_road_closure_bool', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 'latitude', 'longitude', 'is_weekend', 'distance_to_cbd']
+    numeric_cols = [
+        'requires_road_closure_bool', 'hour_sin', 'hour_cos', 'dow_sin', 'dow_cos', 
+        'latitude', 'longitude', 'is_weekend', 'distance_to_cbd',
+        'historical_corridor_density', 'historical_zone_density'
+    ]
     
     feature_cols = categorical_cols + numeric_cols
     
@@ -135,6 +139,13 @@ def train_and_evaluate_models(X_train, X_test, y_train, y_test, categorical_cols
             
         best_pipelines[name] = best_model
         
+        from sklearn.model_selection import KFold, cross_val_score
+        
+        # Explicit K-Fold CV for backtesting
+        kf = KFold(n_splits=5, shuffle=True, random_state=42)
+        cv_scores = cross_val_score(best_model, X_train, y_train, cv=kf, scoring='neg_mean_absolute_error', n_jobs=-1)
+        cv_mae = -cv_scores.mean()
+        
         # Predict on test set
         y_pred = best_model.predict(X_test)
         predictions[name] = y_pred
@@ -146,11 +157,13 @@ def train_and_evaluate_models(X_train, X_test, y_train, y_test, categorical_cols
         r2 = r2_score(y_test, y_pred)
         
         results[name] = {
+            "CV_MAE": cv_mae,
             "MAE": mae,
             "RMSE": rmse,
             "R2": r2
         }
         
+        logger.info(f"  * 5-Fold CV MAE: {cv_mae:.2f} mins")
         logger.info(f"  * Test MAE:  {mae:.2f} mins")
         logger.info(f"  * Test RMSE: {rmse:.2f} mins")
         logger.info(f"  * Test R2:   {r2:.4f}")

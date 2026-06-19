@@ -13,12 +13,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import severity as severity_module
-from config import DATA_FILE
+from config import DATA_FILE, PROTOCOL_THRESHOLDS
 from diversion_route_planner import (
     SCENARIOS,
     build_graph,
     cluster_hotspots,
     find_diversion_routes,
+    fetch_osrm_route,
     haversine_km,
     officer_instruction,
     run_diversion,
@@ -48,6 +49,8 @@ FEATURE_COLS = [
     "latitude",
     "longitude",
     "distance_to_cbd",
+    "historical_corridor_density",
+    "historical_zone_density",
 ]
 
 app = FastAPI(title="ASTRAM Traffic Manager API")
@@ -248,8 +251,8 @@ def run_scenario(index: int):
     )
     return {
         "scenario": scenario,
-        "primary": get_path_metrics(G, primary),
-        "secondary": get_path_metrics(G, secondary),
+        "primary": {**get_path_metrics(G, primary), "osrm": fetch_osrm_route(G, primary)},
+        "secondary": {**get_path_metrics(G, secondary), "osrm": fetch_osrm_route(G, secondary)},
         "instruction": instruction,
     }
 
@@ -285,11 +288,14 @@ def analyze_event(payload: EventInput):
         haversine_km,
     )
 
+    protocol = PROTOCOL_THRESHOLDS.get(severity["severity_label"], PROTOCOL_THRESHOLDS["Low"])
+    
     result = {
         **severity,
         "officers_needed": officers,
         **barricade,
         "recommended_stations": stations,
+        "police_protocol": protocol,
     }
 
     if (
