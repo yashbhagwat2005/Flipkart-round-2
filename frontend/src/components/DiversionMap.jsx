@@ -11,6 +11,59 @@ import {
 } from 'react-leaflet';
 import { AlertTriangle, Navigation2, Radio, Route } from 'lucide-react';
 
+function MovingMarker({ positions, color }) {
+  const [currentPos, setCurrentPos] = React.useState(null);
+  
+  React.useEffect(() => {
+    if (!positions || positions.length < 2) {
+      if (positions && positions.length === 1) {
+        setCurrentPos(positions[0]);
+      }
+      return;
+    }
+    let frameId;
+    let startTime;
+    const duration = 7000; // 7 seconds for full loop
+    
+    const animate = (time) => {
+      if (!startTime) startTime = time;
+      const progress = ((time - startTime) % duration) / duration;
+      const exactIndex = progress * (positions.length - 1);
+      const idx = Math.floor(exactIndex);
+      const nextIdx = (idx + 1) % positions.length;
+      const t = exactIndex - idx;
+      
+      const p1 = positions[idx];
+      const p2 = positions[nextIdx];
+      if (p1 && p2) {
+        const lat = p1[0] + (p2[0] - p1[0]) * t;
+        const lon = p1[1] + (p2[1] - p1[1]) * t;
+        setCurrentPos([lat, lon]);
+      }
+      
+      frameId = requestAnimationFrame(animate);
+    };
+    
+    frameId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frameId);
+  }, [positions]);
+
+  if (!currentPos) return null;
+  
+  return (
+    <Marker 
+      position={currentPos} 
+      icon={L.divIcon({
+        className: 'moving-marker-icon',
+        html: `<div style="background:${color}; width:16px; height:16px; border-radius:50%; border:3px solid white; box-shadow: 0 0 12px ${color}; display: grid; place-items: center; font-size: 9px; line-height: 1;">🚕</div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+      })} 
+      zIndexOffset={1000} 
+    />
+  );
+}
+
 function MapFitter({ bounds }) {
   const map = useMap();
   useEffect(() => {
@@ -19,8 +72,6 @@ function MapFitter({ bounds }) {
   return null;
 }
 
-
-
 const markerIcon = (color, label) => L.divIcon({
   className: 'custom-div-icon',
   html: `<div class="map-pin" style="--pin-color:${color}">${label}</div>`,
@@ -28,14 +79,86 @@ const markerIcon = (color, label) => L.divIcon({
   iconAnchor: [17, 17],
 });
 
-
-
 function routeNodes(routeData, custom, type) {
   if (!routeData) return [];
   if (custom) return routeData[`${type}_route`] || [];
   const segments = routeData[type]?.path || [];
   if (!segments.length) return [];
   return [segments[0].from, ...segments.map((segment) => segment.to)];
+}
+
+function getOffsetRoutes(primary, secondary) {
+  if (!primary || !secondary || !primary.length || !secondary.length) {
+    return { primary: primary || [], secondary: secondary || [] };
+  }
+  
+  const threshold = 0.00015; // ~15 meters
+  const offsetAmount = 0.00012; // degree offset
+  
+  const newPrimary = [];
+  const newSecondary = [];
+  
+  for (let i = 0; i < primary.length; i++) {
+    const pPt = primary[i];
+    let isOverlap = false;
+    for (let j = 0; j < secondary.length; j++) {
+      const sPt = secondary[j];
+      const dist = Math.sqrt(Math.pow(pPt[0] - sPt[0], 2) + Math.pow(pPt[1] - sPt[1], 2));
+      if (dist < threshold) {
+        isOverlap = true;
+        break;
+      }
+    }
+    
+    if (isOverlap) {
+      let nextPt = primary[i + 1] || primary[i];
+      let prevPt = primary[i - 1] || primary[i];
+      let dy = nextPt[0] - prevPt[0];
+      let dx = nextPt[1] - prevPt[1];
+      if (dy === 0 && dx === 0) {
+        dy = 1;
+        dx = 0;
+      }
+      const len = Math.sqrt(dx*dx + dy*dy);
+      const ny = -dx / len;
+      const nx = dy / len;
+      newPrimary.push([pPt[0] + ny * offsetAmount, pPt[1] + nx * offsetAmount]);
+    } else {
+      newPrimary.push([...pPt]);
+    }
+  }
+  
+  for (let j = 0; j < secondary.length; j++) {
+    const sPt = secondary[j];
+    let isOverlap = false;
+    for (let i = 0; i < primary.length; i++) {
+      const pPt = primary[i];
+      const dist = Math.sqrt(Math.pow(pPt[0] - sPt[0], 2) + Math.pow(pPt[1] - sPt[1], 2));
+      if (dist < threshold) {
+        isOverlap = true;
+        break;
+      }
+    }
+    
+    if (isOverlap) {
+      let nextPt = secondary[j + 1] || secondary[j];
+      let prevPt = secondary[j - 1] || secondary[j];
+      let dy = nextPt[0] - prevPt[0];
+      let dx = nextPt[1] - prevPt[1];
+      if (dy === 0 && dx === 0) {
+        dy = 1;
+        dx = 0;
+      }
+      const len = Math.sqrt(dx*dx + dy*dy);
+      const ny = -dx / len;
+      const nx = dy / len;
+      newSecondary.push([sPt[0] - ny * offsetAmount, sPt[1] - nx * offsetAmount]);
+    } else {
+      newSecondary.push([...sPt]);
+    }
+  }
+  
+  return { primary: newPrimary, secondary: newSecondary };
 }
 
 export default function DiversionMap({ networkState, routeData, custom }) {
@@ -61,7 +184,52 @@ export default function DiversionMap({ networkState, routeData, custom }) {
   const bounds = [...primaryPositions, ...secondaryPositions];
   const primaryDistance = custom ? routeData?.primary_distance_km : routeData?.primary?.distance;
   const secondaryDistance = custom ? routeData?.secondary_distance_km : routeData?.secondary?.distance;
+  
+  const getOsrmGeometry = (type) => {
+    let osrm = null;
+    if (custom) {
+      osrm = routeData?.[`${type}_osrm`];
+    } else {
+      osrm = routeData?.[type]?.osrm;
+    }
+    if (osrm?.geometry) {
+      return osrm.geometry.map(([lon, lat]) => [lat, lon]);
+    }
+    return null;
+  };
+
+  const primaryOsrmGeometry = getOsrmGeometry('primary');
+  const secondaryOsrmGeometry = getOsrmGeometry('secondary');
+
+  const finalPrimary = primaryOsrmGeometry || primaryPositions;
+  const finalSecondary = secondaryOsrmGeometry || secondaryPositions;
+
+  // Calculate perpendicular offsets for overlapping route segments
+  const { primary: offsetPrimary, secondary: offsetSecondary } = useMemo(
+    () => getOffsetRoutes(finalPrimary, finalSecondary),
+    [finalPrimary, finalSecondary]
+  );
+
+  const midpoint = useMemo(() => {
+    if (!offsetSecondary || offsetSecondary.length === 0) return null;
+    return offsetSecondary[Math.floor(offsetSecondary.length / 2)];
+  }, [offsetSecondary]);
+
   const instruction = custom ? routeData?.officer_instruction : routeData?.instruction;
+
+  const animationHandler = {
+    add: (e) => {
+      const path = e.target._path;
+      if (path) {
+        const length = path.getTotalLength();
+        path.style.strokeDasharray = length;
+        path.style.strokeDashoffset = length;
+        path.getBoundingClientRect(); // force reflow
+        path.style.transition = 'stroke-dashoffset 1.4s ease-out';
+        path.style.strokeDashoffset = '0';
+      }
+    }
+  };
 
   return (
     <section className="map-view">
@@ -71,11 +239,11 @@ export default function DiversionMap({ networkState, routeData, custom }) {
           <strong>{scenario?.blocked || 'No route selected'}</strong>
         </article>
         <article>
-          <span><Navigation2 size={14} /> Primary route</span>
+          <span><Navigation2 size={14} /> Original route</span>
           <strong className="numeric">{primaryDistance ?? 0} km</strong>
         </article>
         <article>
-          <span><Route size={14} /> Secondary route</span>
+          <span><Route size={14} /> Diversion route</span>
           <strong className="numeric">{secondaryDistance ?? 0} km</strong>
         </article>
       </div>
@@ -84,8 +252,8 @@ export default function DiversionMap({ networkState, routeData, custom }) {
         <p className="eyebrow" style={{ marginBottom: 12 }}>Map Legend</p>
         <ul>
           <li><span className="legend-line blocked" /> Blocked Corridor</li>
-          <li><span className="legend-line primary" /> Primary Route</li>
-          <li><span className="legend-line secondary" /> Diversion Route</li>
+          <li><span className="legend-line primary" /> Original Route (Avoid)</li>
+          <li><span className="legend-line secondary" /> Recommended Route</li>
           <li><span className="legend-circle hotspot" /> Congestion Hotspot</li>
         </ul>
       </div>
@@ -136,18 +304,55 @@ export default function DiversionMap({ networkState, routeData, custom }) {
             key={`${hotspot.lat}-${index}`}
             center={[hotspot.lat, hotspot.lon]}
             radius={800}
-            pathOptions={{ color: '#E5484D', fillColor: '#E5484D', fillOpacity: 0.1 }}
+            className="animated-hotspot"
+            pathOptions={{ color: '#E5484D', fillColor: '#E5484D', fillOpacity: 0.2 }}
           />
         ))}
 
-        <Polyline 
-          positions={secondaryPositions} 
-          pathOptions={{ color: '#38BDF8', weight: 5, dashArray: '10 8' }} 
-        />
-        <Polyline 
-          positions={primaryPositions} 
-          pathOptions={{ color: '#F5A524', weight: 6 }} 
-        />
+        {offsetSecondary.length > 0 && (
+          <>
+            {/* Pulsing outer glow for recommended route */}
+            <Polyline
+              key={`sec-glow-${offsetSecondary.length}-${offsetSecondary[0]?.[0]}`}
+              positions={offsetSecondary}
+              className="diversion-glow"
+              pathOptions={{ color: 'var(--route-secondary)', weight: 12, opacity: 0.3 }}
+              eventHandlers={{ add: animationHandler.add }}
+            />
+            {/* Solid diversion route */}
+            <Polyline 
+              key={`sec-route-${offsetSecondary.length}-${offsetSecondary[0]?.[0]}`}
+              positions={offsetSecondary} 
+              pathOptions={{ color: 'var(--route-secondary)', weight: 6 }} 
+              eventHandlers={{ add: animationHandler.add }}
+            />
+          </>
+        )}
+
+        {offsetPrimary.length > 0 && (
+          <Polyline 
+            key={`pri-route-${offsetPrimary.length}-${offsetPrimary[0]?.[0]}`}
+            positions={offsetPrimary} 
+            pathOptions={{ color: 'var(--route-primary)', weight: 4, dashArray: '8 8', opacity: 0.85 }} 
+            eventHandlers={{ add: animationHandler.add }}
+          />
+        )}
+        
+        {offsetSecondary.length > 1 && (
+          <MovingMarker positions={offsetSecondary} color="var(--route-secondary)" />
+        )}
+
+        {midpoint && (
+          <Marker
+            position={midpoint}
+            icon={L.divIcon({
+              className: 'route-label-marker',
+              html: `<div class="recommended-pill">Recommended Diversion</div>`,
+              iconSize: [140, 24],
+              iconAnchor: [70, 12],
+            })}
+          />
+        )}
 
         {scenario?.origin && nodeData[scenario.origin] && (
           <Marker
@@ -160,7 +365,7 @@ export default function DiversionMap({ networkState, routeData, custom }) {
         {scenario?.dest && nodeData[scenario.dest] && (
           <Marker
             position={[nodeData[scenario.dest].lat, nodeData[scenario.dest].lon]}
-            icon={markerIcon('#F5A524', 'B')}
+            icon={markerIcon('#4A7A6F', 'B')}
           >
             <Popup>{nodeData[scenario.dest].name}</Popup>
           </Marker>

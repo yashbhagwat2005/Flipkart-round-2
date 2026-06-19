@@ -7,6 +7,7 @@ import EventForm from './components/EventForm';
 import LearningDashboard from './components/LearningDashboard';
 import ResourcePanel from './components/ResourcePanel';
 import SeverityGauge from './components/SeverityGauge';
+import ProtocolPanel from './components/ProtocolPanel';
 
 const API = 'http://127.0.0.1:8000';
 
@@ -175,6 +176,7 @@ export default function App() {
                   )}
                 </div>
                 <ResourcePanel result={eventResult} />
+                <ProtocolPanel result={eventResult} />
               </section>
             </div>
           )}
