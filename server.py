@@ -4,6 +4,7 @@ import sys
 import time
 from collections import defaultdict
 from pathlib import Path
+from typing import Dict, List, Optional
 
 import joblib
 import numpy as np
@@ -65,7 +66,7 @@ app.add_middleware(
 # Each entry is a list of Unix timestamps when that station was assigned.
 # Entries older than LOAD_WINDOW_SECONDS are considered resolved.
 LOAD_WINDOW_SECONDS = 3600  # 1 hour — adjust for demo (try 300 for a 5-min demo)
-app.state.active_load: dict[str, list[float]] = defaultdict(list)
+app.state.active_load: Dict[str, List[float]] = defaultdict(list)
 
 
 def current_load_snapshot() -> dict:
@@ -209,10 +210,10 @@ class EventInput(BaseModel):
     latitude: float = 12.9716
     longitude: float = 77.5946
     crowd_size: int = Field(default=0, ge=0)
-    junction: str | None = None
-    blocked_corridor: str | None = None
-    origin: str | None = None
-    destination: str | None = None
+    junction: Optional[str] = None
+    blocked_corridor: Optional[str] = None
+    origin: Optional[str] = None
+    destination: Optional[str] = None
 
 
 @app.get("/api/state")
