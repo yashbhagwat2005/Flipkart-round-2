@@ -953,18 +953,54 @@ blockquote {
     height: calc(100vh - 68px);
   }
 
+  /* Map legend: too wide on mobile — hide it */
+  .map-legend {
+    display: none;
+  }
+
   .metrics-row {
     left: 12px;
     right: 12px;
+    top: 12px;
     overflow-x: auto;
   }
 
   .metrics-row article {
-    min-width: 150px;
+    min-width: 130px;
+    padding: 10px 13px;
   }
 
+  .metrics-row strong {
+    font-size: 13px;
+  }
+
+  /* Protocol strip: full-width, wrap on small screens, drop dividers */
+  .protocol-strip {
+    left: 12px;
+    right: 12px;
+    top: 88px;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 10px 14px;
+  }
+
+  .protocol-divider {
+    display: none;
+  }
+
+  /* Instruction panel: full-width, no transform needed */
   .instruction-panel {
-    bottom: 14px;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    transform: none;
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .instruction-panel p {
+    font-size: 13px;
   }
 
   .learning-dashboard {

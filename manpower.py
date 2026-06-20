@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 
 import joblib
 import numpy as np
@@ -176,8 +177,8 @@ def _barricade_locations(blocked_corridor, nodes_dict, severity_score) -> list:
 def predict_barricade(
     event_cause: str,
     severity_score: int,
-    blocked_corridor: str | None = None,
-    nodes_dict: dict | None = None,
+    blocked_corridor: Optional[str] = None,
+    nodes_dict: Optional[dict] = None,
 ) -> dict:
     """
     Predict whether road closure / barricades are needed.
@@ -189,14 +190,18 @@ def predict_barricade(
     Optional blocked_corridor + nodes_dict enable concrete lat/lon barricade
     placement (added to the response as barricade_locations).
     """
+    confidence = None
     if _BARRICADE_PIPELINE is not None:
-        row = pd.DataFrame([{
-            "event_cause": (event_cause or "others").lower().strip(),
-            "severity_score": int(severity_score),
-        }])
-        confidence = float(_BARRICADE_PIPELINE.predict_proba(row)[0, 1])
-    else:
-        # Heuristic fallback
+        try:
+            row = pd.DataFrame([{
+                "event_cause": (event_cause or "others").lower().strip(),
+                "severity_score": int(severity_score),
+            }])
+            confidence = float(_BARRICADE_PIPELINE.predict_proba(row)[0, 1])
+        except Exception:
+            pass  # pkl trained on newer sklearn — fall through to heuristic
+
+    if confidence is None:
         base_rate = CLOSURE_RATE.get(event_cause, 0.08)
         confidence = min(0.97, base_rate + (severity_score / 100) * 0.2)
 
